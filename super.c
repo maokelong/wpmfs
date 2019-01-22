@@ -1037,7 +1037,7 @@ static struct dentry *pmfs_mount(struct file_system_type *fs_type,
 
 static struct file_system_type pmfs_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "pmfs",
+	.name		= "wapmfs",
 	.mount		= pmfs_mount,
 	.kill_sb	= kill_block_super,
 };
