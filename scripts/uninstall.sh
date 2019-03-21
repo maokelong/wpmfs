@@ -9,7 +9,7 @@ source config.sh
 # clean, unmount, rmmod and remove
 cd ..
 make clean
-if [[ "$(mountpoint $CONFIG_FS_DIR)" =~ *"not"* ]]; then
+if [[ "$(mountpoint $CONFIG_FS_DIR)" == *"is a"* ]]; then
   sudo umount $CONFIG_FS_DIR
 fi
 if [[ -n "$(lsmod | grep $CONFIG_FS_NAME)" ]]; then

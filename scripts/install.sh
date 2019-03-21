@@ -19,7 +19,7 @@ if [[ ! -d $CONFIG_FS_DIR ]]; then
   sudo echo chown $USER_NAME $CONFIG_FS_DIR 
 fi
 
-if [[ ! "$(mountpoint $CONFIG_FS_DIR)" =~ *"not"* ]]; then
+if [[ "$(mountpoint $CONFIG_FS_DIR)" == *"is a"* ]]; then
   sudo umount $CONFIG_FS_DIR
 fi
 
