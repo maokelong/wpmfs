@@ -35,6 +35,7 @@
 #include <linux/dax.h>
 #include "pmfs.h"
 
+#include "proc.h"
 int measure_timing = 0;
 int support_clwb = 0;
 int support_pcommit = 0;
@@ -1093,6 +1094,10 @@ static int __init init_pmfs_fs(void)
 {
 	int rc = 0;
 
+	rc = init_proc();
+	if (rc)
+		return rc;
+
 	rc = init_blocknode_cache();
 	if (rc)
 		return rc;
@@ -1122,6 +1127,7 @@ out1:
 
 static void __exit exit_pmfs_fs(void)
 {
+	destory_proc();
 	unregister_filesystem(&pmfs_fs_type);
 	destroy_inodecache();
 	destroy_blocknode_cache();

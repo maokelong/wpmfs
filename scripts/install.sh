@@ -14,21 +14,22 @@ cd ..
 make
 
 # mkdir, unmount and rmmod
-if [[ ! -d $CONFIG_FS_DIR ]]; then
-  sudo mkdir -p $CONFIG_FS_DIR
+if [[ ! -d $CONFIG_PATH_FS ]]; then
+  sudo mkdir -p $CONFIG_PATH_FS
 fi
 
-if [[ "$(mountpoint $CONFIG_FS_DIR)" == *"is a"* ]]; then
-  sudo umount $CONFIG_FS_DIR
+if [[ "$(mountpoint $CONFIG_PATH_FS)" == *"is a"* ]]; then
+  sudo umount $CONFIG_PATH_FS
 fi
 
-if [[ -n "$(lsmod | grep $CONFIG_FS_NAME)" ]]; then
-  sudo rmmod $CONFIG_FS_NAME
+if [[ -n "$(lsmod | grep $CONFIG_NAME_FS)" ]]; then
+  sudo rmmod $CONFIG_NAME_FS
 fi
 
 # insmod and mount
-sudo insmod $CONFIG_FS_NAME.ko measure_timing=0
+sudo insmod $CONFIG_NAME_FS.ko measure_timing=0
 sleep 1
-sudo mount -t $CONFIG_FS_NAME -o init $CONFIG_PMEM_DEV_DIR $CONFIG_FS_DIR
+sudo mount -t $CONFIG_NAME_FS -o init $CONFIG_PATH_PMEM_DEV $CONFIG_PATH_FS
 USER_NAME=$USER
-sudo chown $USER_NAME $CONFIG_FS_DIR
+sudo chown $USER_NAME $CONFIG_PATH_FS
+sudo chown $USER_NAME $CONFIG_PATH_PROC
