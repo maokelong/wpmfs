@@ -34,8 +34,8 @@
 #include <linux/list.h>
 #include <linux/dax.h>
 #include "pmfs.h"
+#include "wpmfs_proc.h"
 
-#include "proc.h"
 int measure_timing = 0;
 int support_clwb = 0;
 int support_pcommit = 0;

@@ -17,6 +17,7 @@
 #include <linux/compat.h>
 #include <linux/mount.h>
 #include "pmfs.h"
+#include "wpmfs_wr.h"
 
 #define	FS_PMFS_FSYNC	0xBCD0000E
 
@@ -141,6 +142,19 @@ setversion_out:
 	}
 	case PMFS_CLEAR_STATS: {
 		pmfs_clear_stats();
+		return 0;
+	}
+	case WPMFS_INC_CNT: {
+		struct wpmfs_sync_cnt packet;
+		copy_from_user(&packet, (void *)arg, sizeof(struct wpmfs_sync_cnt));
+		wpmfs_inc_cnt(inode, packet);
+		return 0;
+	}
+	case WPMFS_GET_CNT: {
+		struct wpmfs_sync_cnt packet;
+		copy_from_user(&packet, (void *)arg, sizeof(struct wpmfs_sync_cnt));
+		wpmfs_get_cnt(inode, &packet);
+		copy_to_user((void *)arg, &packet, sizeof(struct wpmfs_sync_cnt));
 		return 0;
 	}
 	default:

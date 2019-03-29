@@ -44,12 +44,29 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #endif
 
+/* 打印用宏 */
+#define prt_dbg(fmt, args...)                                                \
+  printk(KERN_DEBUG "wpmfs: %s @%s() #%d. " fmt, __FILE__, __func__, __LINE__, \
+         ##args)
+#define prt_err(fmt, args...)                                                \
+  printk(KERN_ERR "wpmfs: %s @%s() #%d. " fmt, __FILE__, __func__, __LINE__, \
+         ##args)
+#define prt_ast(x)                                                         \
+  if (!(x)) {                                                                 \
+    printk(KERN_WARNING "wpmfs: %s @%s() #%d. Assertion failed.\n", __FILE__, \
+           __func__, __LINE__);                                               \
+  }
+
 /* #define pmfs_dbg(s, args...)         pr_debug(s, ## args) */
 #define pmfs_dbg(s, args ...)           pr_info(s, ## args)
 #define pmfs_dbg1(s, args ...)
 #define pmfs_err(sb, s, args ...)       pmfs_error_mng(sb, s, ## args)
 #define pmfs_warn(s, args ...)          pr_warning(s, ## args)
 #define pmfs_info(s, args ...)          pr_info(s, ## args)
+#define wpmfs_debug(fmt, args ...)			// 1 for ing
+#define wpmfs_debug1(fmt, args ...)			prt_dbg(fmt, ## args)
+#define wpmfs_error(fmt, args ...)			prt_err(fmt, ## args)
+#define wpmfs_assert(x)									prt_ast(x)
 
 extern unsigned int pmfs_dbgmask;
 #define PMFS_DBGMASK_MMAPHUGE          (0x00000001)
