@@ -2,7 +2,6 @@
  * wpmfs 注册的 proc 文件
  */
 
-#include "wpmfs_proc.h"
 #include <linux/fdtable.h>
 #include <linux/file.h>
 #include <linux/kernel.h>
@@ -10,63 +9,70 @@
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
 #include "pmfs.h"
+#include "wpmfs_proc.h"
 #include "wpmfs_wr.h"
 
 #define BUFSIZE 128
 static struct proc_dir_entry *ent;
 
+#pragma pack(1)  // 统一不加 padding
 struct {
   int fd;
   unsigned opcode;
   struct wpmfs_sync_cnt packet;
-} args;
+} message;
+#pragma pack()
 
 // 参数格式：fd opcode pageoff (cnt) \n
 // 也即，文件描述符，操作码，页偏移，写次数，换行符
 static ssize_t write_handler(struct file *file, const char __user *ubuf,
                              size_t count, loff_t *ppos) {
-  char buf[BUFSIZE];
   struct file *fileUsr = NULL;
-  int retval = -EINVAL, argc;
+  int retval = -EINVAL;
 
   /* 获取并检查参数 */
-  if (count >= BUFSIZE || copy_from_user(buf, ubuf, count)) {
+  if (count != sizeof(message) &&
+      count != sizeof(message) - sizeof(message.packet.cnt)) {
     wpmfs_error(
-        "Write handler failed to read user buffer. "
-        "Kernel buffer size: %d.\n",
-        BUFSIZE);
+        "Received illegal message, of which size = %lu. Note that only %lu and "
+        "%lu are expected.\n",
+        count, sizeof(message), sizeof(message) - sizeof(message.packet.cnt));
+    goto out;
+  }
+  if (copy_from_user(&message, ubuf, count)) {
+    wpmfs_error("Failed to read user buffer.\n");
     goto out;
   };
-  buf[count] = '\0';  // 以免应用未传递额外控制字符
-  wpmfs_debug("Kbuf reads: %s.\n", buf);
-  argc = sscanf(buf, "%d %u %u %u", &args.fd, &args.opcode,
-                &args.packet.pageoff, &args.packet.cnt);
-  if (!((argc == 3 && args.opcode == WPMFS_GET_CNT) ||
-        (argc == 4 && args.opcode == WPMFS_INC_CNT)) ||
-      args.fd < 0) {
+  if (message.fd < 0 ||
+      (message.opcode != WPMFS_GET_CNT && message.opcode != WPMFS_INC_CNT)) {
     wpmfs_error(
-        "Write handler received illegal request. "
-        "Of which, argc = %d, opcode = 0x%x.\n",
-        argc, args.opcode);
+        "Received invalid request, "
+        "of which, fd = %d, opcode = 0x%x.\n",
+        message.fd, message.opcode);
+    fput(fileUsr);
     goto out;
   }
 
-  /* 获取文件指针 */
-  fileUsr = fget_raw(args.fd);
+  /* 获取应用内存池指针 */
+  fileUsr = fget_raw(message.fd);
   if (!fileUsr) {
-    wpmfs_error("Write handler cannot open a file using given fd = %d.\n",
-                args.fd);
+    wpmfs_error("Failed to open target file. fd = %d.\n", message.fd);
     goto out;
   }
+
+  wpmfs_debug(
+      "fd = %d, opcode = 0x%x, pageoff = %u, cnt = %u. Message size = %lu.\n",
+      message.fd, message.opcode, message.packet.pageoff, message.packet.cnt,
+      count);
 
   /* 处理用户请求 */
-  switch (args.opcode) {
+  switch (message.opcode) {
     case WPMFS_INC_CNT:
-      wpmfs_inc_cnt(fileUsr->f_inode, args.packet);
+      wpmfs_inc_cnt(fileUsr->f_inode, message.packet);
       break;
 
     case WPMFS_GET_CNT:
-      wpmfs_get_cnt(fileUsr->f_inode, &args.packet);
+      wpmfs_get_cnt(fileUsr->f_inode, &message.packet);
       break;
 
     default:
@@ -87,22 +93,16 @@ static ssize_t read_handler(struct file *file, char __user *ubuf, size_t count,
   char buf[BUFSIZE];
   int retval = -EINVAL, len;
 
-  /* 检查应用缓冲区是否足够大 */
-  wpmfs_debug("Ubuf len = %lu.\n", count);
-  len = sprintf(buf, "%u", args.packet.cnt);
-  wpmfs_assert(len < BUFSIZE);  //正确的设计下不会发生数组越界
-  if (count < len) {
-    wpmfs_error(
-        "Read handler failed to fill user buffer."
-        "Requested size: %d.\n",
-        len);
+  /* 检查应用是否提供了正确的缓冲区 */
+  if (count != sizeof(message.packet.cnt)) {
+    wpmfs_error("Illegal user buffer, of which size = %lu.\n", count);
     goto out;
   }
 
   /* 传输页写次数给应用 */
-  len = sprintf(buf, "%u\n", args.packet.cnt);
+  len = sprintf(buf, "%u\n", message.packet.cnt);
   if (copy_to_user(ubuf, buf, len)) {
-    wpmfs_error("Read handler failed to fill user buffer.");
+    wpmfs_error("Failed to fill in user buffer.");
     goto out;
   }
 
