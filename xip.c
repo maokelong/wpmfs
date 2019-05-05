@@ -35,14 +35,14 @@ do_xip_mapping_read(struct address_space *mapping,
 	timing_t memcpy_time;
 
 	pos = *ppos;
-	index = pos >> PAGE_CACHE_SHIFT;
-	offset = pos & ~PAGE_CACHE_MASK;
+	index = pos >> PAGE_SHIFT;
+	offset = pos & ~PAGE_MASK;
 
 	isize = i_size_read(inode);
 	if (!isize)
 		goto out;
 
-	end_index = (isize - 1) >> PAGE_CACHE_SHIFT;
+	end_index = (isize - 1) >> PAGE_SHIFT;
 	do {
 		unsigned long nr, left;
 		void *xip_mem;
@@ -50,11 +50,11 @@ do_xip_mapping_read(struct address_space *mapping,
 		int zero = 0;
 
 		/* nr is the maximum number of bytes to copy from this page */
-		nr = PAGE_CACHE_SIZE;
+		nr = PAGE_SIZE;
 		if (index >= end_index) {
 			if (index > end_index)
 				goto out;
-			nr = ((isize - 1) & ~PAGE_CACHE_MASK) + 1;
+			nr = ((isize - 1) & ~PAGE_MASK) + 1;
 			if (nr <= offset) {
 				goto out;
 			}
@@ -103,8 +103,8 @@ do_xip_mapping_read(struct address_space *mapping,
 
 		copied += (nr - left);
 		offset += (nr - left);
-		index += offset >> PAGE_CACHE_SHIFT;
-		offset &= ~PAGE_CACHE_MASK;
+		index += offset >> PAGE_SHIFT;
+		offset &= ~PAGE_MASK;
 	} while (copied < len);
 
 out:
@@ -279,7 +279,7 @@ static ssize_t pmfs_file_write_fast(struct super_block *sb, struct inode *inode,
 	if (unlikely(copied != count && copied == 0))
 		ret = -EFAULT;
 	*ppos = pos;
-	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
+	inode->i_ctime = inode->i_mtime = current_time(inode);
 	if (pos > inode->i_size) {
 		/* make sure written data is persistent before updating
 	 	* time and size */
@@ -357,7 +357,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
 	sb_start_write(inode->i_sb);
-	mutex_lock(&inode->i_mutex);
+	inode_lock(inode);
 
 	if (!access_ok(VERIFY_READ, buf, len)) {
 		ret = -EFAULT;
@@ -370,11 +370,6 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 		goto out;
 	}
 
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,0,9)
-	ret = generic_write_checks(filp, &pos, &count, S_ISBLK(inode->i_mode));
-	if (ret || count == 0)
-		goto out;
-#endif
 	pi = pmfs_get_inode(sb, inode->i_ino);
 
 	offset = pos & (sb->s_blocksize - 1);
@@ -412,7 +407,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 		pmfs_abort_transaction(sb, trans);
 		goto out;
 	}
-	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
+	inode->i_ctime = inode->i_mtime = current_time(inode);
 	pmfs_update_time(inode, pi);
 
 	/* We avoid zeroing the alloc'd range, which is going to be overwritten
@@ -443,7 +438,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	pmfs_commit_transaction(sb, trans);
 	ret = written;
 out:
-	mutex_unlock(&inode->i_mutex);
+	inode_unlock(inode);
 	sb_end_write(inode->i_sb);
 	PMFS_END_TIMING(xip_write_t, xip_write_time);
 	return ret;
@@ -462,12 +457,12 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	unsigned long xip_pfn;
 	int err;
 
-	size = (i_size_read(inode) + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	size = (i_size_read(inode) + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (vmf->pgoff >= size) {
 		pmfs_dbg("[%s:%d] pgoff >= size(SIGBUS). vm_start(0x%lx),"
 			" vm_end(0x%lx), pgoff(0x%lx), VA(%lx), size 0x%lx\n",
 			__func__, __LINE__, vma->vm_start, vma->vm_end,
-			vmf->pgoff, (unsigned long)vmf->virtual_address, size);
+			vmf->pgoff, (unsigned long)vmf->address, size);
 		return VM_FAULT_SIGBUS;
 	}
 
@@ -476,17 +471,18 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 		pmfs_dbg("[%s:%d] get_xip_mem failed(OOM). vm_start(0x%lx),"
 			" vm_end(0x%lx), pgoff(0x%lx), VA(%lx)\n",
 			__func__, __LINE__, vma->vm_start, vma->vm_end,
-			vmf->pgoff, (unsigned long)vmf->virtual_address);
+			vmf->pgoff, (unsigned long)vmf->address);
 		return VM_FAULT_SIGBUS;
 	}
 
 	pmfs_dbg_mmapv("[%s:%d] vm_start(0x%lx), vm_end(0x%lx), pgoff(0x%lx), "
 			"BlockSz(0x%lx), VA(0x%lx)->PA(0x%lx)\n", __func__,
 			__LINE__, vma->vm_start, vma->vm_end, vmf->pgoff,
-			PAGE_SIZE, (unsigned long)vmf->virtual_address,
+			PAGE_SIZE, (unsigned long)vmf->address,
 			(unsigned long)xip_pfn << PAGE_SHIFT);
 
-	err = vm_insert_mixed(vma, (unsigned long)vmf->virtual_address, xip_pfn);
+	err = vm_insert_mixed(vma, (unsigned long)vmf->address,
+			pfn_to_pfn_t(xip_pfn));
 
 	if (err == -ENOMEM)
 		return VM_FAULT_SIGBUS;
@@ -499,14 +495,14 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	return VM_FAULT_NOPAGE;
 }
 
-static int pmfs_xip_file_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int pmfs_xip_file_fault(struct vm_fault *vmf)
 {
 	int ret = 0;
 	timing_t fault_time;
 
 	PMFS_START_TIMING(mmap_fault_t, fault_time);
 	rcu_read_lock();
-	ret = __pmfs_xip_file_fault(vma, vmf);
+	ret = __pmfs_xip_file_fault(vmf->vma, vmf);
 	rcu_read_unlock();
 	PMFS_END_TIMING(mmap_fault_t, fault_time);
 	return ret;
@@ -547,7 +543,7 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode, sector_t iblock,
 			}
 
 			rcu_read_unlock();
-			mutex_lock(&inode->i_mutex);
+			inode_lock(inode);
 
 			pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY,
 				LE_DATA);
@@ -555,7 +551,7 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode, sector_t iblock,
 
 			pmfs_commit_transaction(sb, trans);
 
-			mutex_unlock(&inode->i_mutex);
+			inode_unlock(inode);
 			rcu_read_lock();
 			if (err) {
 				pmfs_dbg_verbose("[%s:%d] Alloc failed!\n",

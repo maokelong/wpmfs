@@ -61,13 +61,13 @@ long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			goto flags_out;
 		}
 
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		oldflags = le32_to_cpu(pi->i_flags);
 
 		if ((flags ^ oldflags) &
 		    (FS_APPEND_FL | FS_IMMUTABLE_FL)) {
 			if (!capable(CAP_LINUX_IMMUTABLE)) {
-				mutex_unlock(&inode->i_mutex);
+				inode_unlock(inode);
 				ret = -EPERM;
 				goto flags_out;
 			}
@@ -78,7 +78,7 @@ long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		flags = flags & FS_FL_USER_MODIFIABLE;
 		flags |= oldflags & ~FS_FL_USER_MODIFIABLE;
-		inode->i_ctime = CURRENT_TIME_SEC;
+		inode->i_ctime = current_time(inode);
 		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
@@ -92,7 +92,7 @@ long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		pmfs_memlock_inode(sb, pi);
 		pmfs_commit_transaction(sb, trans);
 out:
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 flags_out:
 		mnt_drop_write_file(filp);
 		return ret;
@@ -110,21 +110,21 @@ flags_out:
 			ret = -EFAULT;
 			goto setversion_out;
 		}
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
 			goto out;
 		}
 		pmfs_add_logentry(sb, trans, pi, sizeof(*pi), LE_DATA);
-		inode->i_ctime = CURRENT_TIME_SEC;
+		inode->i_ctime = current_time(inode);
 		inode->i_generation = generation;
 		pmfs_memunlock_inode(sb, pi);
 		PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 		PM_EQU(pi->i_generation, cpu_to_le32(inode->i_generation));
 		pmfs_memlock_inode(sb, pi);
 		pmfs_commit_transaction(sb, trans);
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 setversion_out:
 		mnt_drop_write_file(filp);
 		return ret;
