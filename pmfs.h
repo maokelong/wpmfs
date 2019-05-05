@@ -152,6 +152,7 @@ extern u64 Countstats[TIMING_NUM];
 
 extern int measure_timing;
 extern int support_clwb;
+extern int support_clflushopt;
 
 extern atomic64_t fsync_pages;
 
@@ -413,25 +414,25 @@ static inline void pmfs_memcpy_atomic (void *dst, const void *src, u8 size)
 		case 1: {
 			volatile u8 *daddr = dst;
 			const u8 *saddr = src;
-			*daddr = *saddr;
+			PM_EQU(*daddr, *saddr);
 			break;
 		}
 		case 2: {
 			volatile __le16 *daddr = dst;
 			const u16 *saddr = src;
-			*daddr = cpu_to_le16(*saddr);
+			PM_EQU(*daddr, cpu_to_le16(*saddr));
 			break;
 		}
 		case 4: {
 			volatile __le32 *daddr = dst;
 			const u32 *saddr = src;
-			*daddr = cpu_to_le32(*saddr);
+			PM_EQU(*daddr, cpu_to_le32(*saddr));
 			break;
 		}
 		case 8: {
 			volatile __le64 *daddr = dst;
 			const u64 *saddr = src;
-			*daddr = cpu_to_le64(*saddr);
+			PM_EQU(*daddr, cpu_to_le64(*saddr));
 			break;
 		}
 		default:
@@ -454,6 +455,9 @@ static inline void pmfs_update_time_and_size(struct inode *inode,
  	* 16 bytes atomically. Confirm if it is really true. */
 	cmpxchg_double_local(&pi->i_size, (u64 *)&pi->i_ctime, pi->i_size,
 		*(u64 *)&pi->i_ctime, new_pi_size, *(u64 *)words);
+	PM_WRITE(pi->i_size);
+        PM_WRITE(pi->i_ctime);
+        PM_WRITE(pi->i_mtime);
 }
 
 /* assumes the length to be 4-byte aligned */
@@ -491,6 +495,7 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 		"movnti %%eax,(%%rdi)\n"
 		"12:\n"
 		: "=D"(dummy1), "=d" (dummy2) : "D" (dest), "a" (qword), "d" (length) : "memory", "rcx");
+	PM_MOVNTI(dest, length, length - (length%4)); /* This macro does not perform movnti, only records */
 }
 
 static inline u64 __pmfs_find_data_block(struct super_block *sb,

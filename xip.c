@@ -158,13 +158,22 @@ static inline size_t memcpy_to_nvmm(char *kmem, loff_t offset,
 	const char __user *buf, size_t bytes)
 {
 	size_t copied;
+	#ifdef __TRACE__
+		void *dst = kmem + offset;
+	#endif
 
 	if (support_clwb) {
 		copied = bytes - __copy_from_user(kmem + offset, buf, bytes);
 		pmfs_flush_buffer(kmem + offset, copied, 0);
+		/* 
+ 		 * We don't have CLWB on Skylake, should we do CLFLUSHOPT ? 
+ 		 * No, PMFS originally uses MOVNTI. 
+		 */
 	} else {
 		copied = bytes - __copy_from_user_inatomic_nocache(kmem +
 						offset, buf, bytes);
+		PM_MOVNTI_DI(dst, bytes, copied); /* This macro does not perform movnti, only records */
+		PM_FENCE();		          /* This macro does not perform fence,  only records */
 	}
 
 	return copied;
@@ -254,7 +263,7 @@ static ssize_t pmfs_file_write_fast(struct super_block *sb, struct inode *inode,
 	timing_t memcpy_time;
 
 	offset = pos & (sb->s_blocksize - 1);
-
+	PM_TX_BEGIN();
 	PMFS_START_TIMING(memcpy_w_t, memcpy_time);
 	pmfs_xip_mem_protect(sb, xmem + offset, count, 1);
 	copied = memcpy_to_nvmm((char *)xmem, offset, buf, count);
@@ -291,7 +300,8 @@ static ssize_t pmfs_file_write_fast(struct super_block *sb, struct inode *inode,
 		pmfs_memcpy_atomic(&pi->i_ctime, &c_m_time, 8);
 		pmfs_memlock_inode(sb, pi);
 	}
-	pmfs_flush_buffer(pi, 1, false);
+	pmfs_flush_buffer(pi, 1, true); /* missing fence ? */
+	PM_TX_COMMIT();
 	return ret;
 }
 

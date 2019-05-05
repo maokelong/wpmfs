@@ -205,6 +205,8 @@ struct pmfs_super_block {
 /* INODE HINT  START at 3 */ 
 #define PMFS_FREE_INODE_HINT_START      (3)
 
+#include "pm_instr.h"
+
 /* ======================= Write ordering ========================= */
 
 #define CACHELINE_SIZE  (64)
@@ -225,13 +227,19 @@ static inline bool arch_has_clwb(void)
 	return static_cpu_has(X86_FEATURE_CLWB);
 }
 
+static inline bool arch_has_clflushopt(void)
+{
+	return static_cpu_has(X86_FEATURE_CLFLUSHOPT);
+}
+
 extern int support_clwb;
 extern int support_pcommit;
+extern int support_clflushopt;
 
 #define _mm_clflush(addr)\
 	asm volatile("clflush %0" : "+m" (*(volatile char *)(addr)))
 #define _mm_clflushopt(addr)\
-	asm volatile(".byte 0x66; clflush %0" : "+m" (*(volatile char *)(addr)))
+	asm volatile(".byte 0x66; clflushopt %0" : "+m" (*(volatile char *)(addr)))
 #define _mm_clwb(addr)\
 	asm volatile(".byte 0x66; xsaveopt %0" : "+m" (*(volatile char *)(addr)))
 #define _mm_pcommit()\
@@ -245,7 +253,8 @@ static inline void PERSISTENT_MARK(void)
 
 static inline void PERSISTENT_BARRIER(void)
 {
-	asm volatile ("sfence\n" : : );
+	asm volatile ("sfence\n" : : ); 
+	PM_FENCE();
 	if (support_pcommit) {
 		/* Do nothing */
 	}
@@ -258,6 +267,10 @@ static inline void pmfs_flush_buffer(void *buf, uint32_t len, bool fence)
 	if (support_clwb) {
 		for (i = 0; i < len; i += CACHELINE_SIZE)
 			_mm_clwb(buf + i);
+	} else if (support_clflushopt) {
+		for (i = 0; i < len; i += CACHELINE_SIZE)
+			_mm_clflushopt(buf + i);
+		// PM_FLUSHOPT(buf, len, i);
 	} else {
 		for (i = 0; i < len; i += CACHELINE_SIZE)
 			_mm_clflush(buf + i);

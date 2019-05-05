@@ -294,7 +294,7 @@ static int pmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 
 	pi = pmfs_get_inode(sb, inode->i_ino);
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode))
-		pi->dev.rdev = cpu_to_le32(inode->i_rdev);
+		PM_EQU(pi->dev.rdev, cpu_to_le32(inode->i_rdev));
 	err = pmfs_add_nondir(trans, dir, dentry, inode);
 	if (err)
 		goto out_err;
@@ -395,8 +395,8 @@ static int pmfs_link(struct dentry *dest_dentry, struct inode *dir,
 		inc_nlink(inode);
 
 		pmfs_memunlock_inode(sb, pi);
-		pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-		pi->i_links_count = cpu_to_le16(inode->i_nlink);
+		PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
+		PM_EQU(pi->i_links_count, cpu_to_le16(inode->i_nlink));
 		pmfs_memlock_inode(sb, pi);
 
 		d_instantiate(dentry, inode);
@@ -441,9 +441,9 @@ static int pmfs_unlink(struct inode *dir, struct dentry *dentry)
 	pmfs_memunlock_inode(sb, pi);
 	if (inode->i_nlink) {
 		drop_nlink(inode);
-		pi->i_links_count = cpu_to_le16(inode->i_nlink);
+		PM_EQU(pi->i_links_count, cpu_to_le16(inode->i_nlink));
 	}
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 	pmfs_memlock_inode(sb, pi);
 
 	pmfs_commit_transaction(sb, trans);
@@ -499,16 +499,16 @@ static int pmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	blk_base = pmfs_get_block(sb, pmfs_find_data_block(inode, 0));
 	de = (struct pmfs_direntry *)blk_base;
 	pmfs_memunlock_range(sb, blk_base, sb->s_blocksize);
-	de->ino = cpu_to_le64(inode->i_ino);
-	de->name_len = 1;
-	de->de_len = cpu_to_le16(PMFS_DIR_REC_LEN(de->name_len));
-	strcpy(de->name, ".");
+	PM_EQU(de->ino, cpu_to_le64(inode->i_ino));
+	PM_EQU(de->name_len, 1);
+	PM_EQU(de->de_len, cpu_to_le16(PMFS_DIR_REC_LEN(de->name_len)));
+	PM_STRCPY(de->name, ".");
 	/*de->file_type = S_IFDIR; */
 	de = pmfs_next_entry(de);
-	de->ino = cpu_to_le64(dir->i_ino);
-	de->de_len = cpu_to_le16(sb->s_blocksize - PMFS_DIR_REC_LEN(1));
-	de->name_len = 2;
-	strcpy(de->name, "..");
+	PM_EQU(de->ino, cpu_to_le64(dir->i_ino));
+	PM_EQU(de->de_len, cpu_to_le16(sb->s_blocksize - PMFS_DIR_REC_LEN(1)));
+	PM_EQU(de->name_len, 2);
+	PM_STRCPY(de->name, "..");
 	/*de->file_type =  S_IFDIR; */
 	pmfs_memlock_range(sb, blk_base, sb->s_blocksize);
 
@@ -525,8 +525,8 @@ static int pmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	}
 	pi = pmfs_get_inode(sb, inode->i_ino);
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_links_count = cpu_to_le16(inode->i_nlink);
-	pi->i_size = cpu_to_le64(inode->i_size);
+	PM_EQU(pi->i_links_count, cpu_to_le16(inode->i_nlink));
+	PM_EQU(pi->i_size, cpu_to_le64(inode->i_size));
 	pmfs_memlock_inode(sb, pi);
 
 	pidir = pmfs_get_inode(sb, dir->i_ino);
@@ -652,8 +652,8 @@ static int pmfs_rmdir(struct inode *dir, struct dentry *dentry)
 	inode->i_ctime = dir->i_ctime;
 
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_links_count = cpu_to_le16(inode->i_nlink);
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+	PM_EQU(pi->i_links_count, cpu_to_le16(inode->i_nlink));
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 	pmfs_memlock_inode(sb, pi);
 
 	/* add the inode to truncate list in case a crash happens before the
@@ -723,7 +723,7 @@ static int pmfs_rename(struct inode *old_dir,
 			LE_DATA);
 
 		pmfs_memunlock_range(sb, new_de, sb->s_blocksize);
-		new_de->ino = cpu_to_le64(old_inode->i_ino);
+		PM_EQU(new_de->ino, cpu_to_le64(old_inode->i_ino));
 		/*new_de->file_type = old_de->file_type; */
 		pmfs_memlock_range(sb, new_de, sb->s_blocksize);
 
@@ -749,10 +749,10 @@ static int pmfs_rename(struct inode *old_dir,
 			if (new_inode->i_nlink)
 				drop_nlink(new_inode);
 		}
-		pi->i_ctime = cpu_to_le32(new_inode->i_ctime.tv_sec);
+		PM_EQU(pi->i_ctime, cpu_to_le32(new_inode->i_ctime.tv_sec));
 		if (new_inode->i_nlink)
 			drop_nlink(new_inode);
-		pi->i_links_count = cpu_to_le16(new_inode->i_nlink);
+		PM_EQU(pi->i_links_count, cpu_to_le16(new_inode->i_nlink));
 		pmfs_memlock_inode(sb, pi);
 
 		if (!new_inode->i_nlink)

@@ -87,8 +87,8 @@ long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
 		pmfs_memunlock_inode(sb, pi);
-		pi->i_flags = cpu_to_le32(flags);
-		pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+		PM_EQU(pi->i_flags, cpu_to_le32(flags));
+		PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 		pmfs_set_inode_flags(inode, pi);
 		pmfs_memlock_inode(sb, pi);
 		pmfs_commit_transaction(sb, trans);
@@ -121,8 +121,8 @@ flags_out:
 		inode->i_ctime = current_time(inode);
 		inode->i_generation = generation;
 		pmfs_memunlock_inode(sb, pi);
-		pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-		pi->i_generation = cpu_to_le32(inode->i_generation);
+		PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
+		PM_EQU(pi->i_generation, cpu_to_le32(inode->i_generation));
 		pmfs_memlock_inode(sb, pi);
 		pmfs_commit_transaction(sb, trans);
 		inode_unlock(inode);
@@ -132,7 +132,7 @@ setversion_out:
 	}
 	case FS_PMFS_FSYNC: {
 		struct sync_range packet;
-		copy_from_user(&packet, (void *)arg, sizeof(struct sync_range));
+		ret = copy_from_user(&packet, (void *)arg, sizeof(struct sync_range));
 		pmfs_fsync(filp, packet.offset, packet.offset + packet.length, 1);
 		return 0;
 	}

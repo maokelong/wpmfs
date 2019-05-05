@@ -41,7 +41,7 @@ static int pmfs_new_data_block(struct super_block *sb, struct pmfs_inode *pi,
 
 	if (!errval) {
 		pmfs_memunlock_inode(sb, pi);
-		le64_add_cpu(&pi->i_blocks,
+		le64_add_cpu(PM_WRITE_P(pi->i_blocks),
 			(1 << (data_bits - sb->s_blocksize_bits)));
 		pmfs_memlock_inode(sb, pi);
 	}
@@ -305,7 +305,7 @@ static int recursive_truncate_blocks(struct super_block *sb, __le64 block,
 		if (start <= end) {
 			bzero = (end - start + 1) * sizeof(u64);
 			pmfs_memunlock_block(sb, node);
-			memset(&node[start], 0, bzero);
+			PM_MEMSET(&node[start], 0, bzero);
 			pmfs_memlock_block(sb, node);
 			pmfs_flush_buffer(&node[start], bzero, false);
 		}
@@ -496,9 +496,9 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 				sb->s_blocksize_bits)));
 
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_blocks = cpu_to_le64(inode->i_blocks);
-	pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+	PM_EQU(pi->i_blocks, cpu_to_le64(inode->i_blocks));
+	PM_EQU(pi->i_mtime, cpu_to_le32(inode->i_mtime.tv_sec));
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 	pmfs_decrease_btree_height(sb, pi, start, root);
 	/* Check for the flag EOFBLOCKS is still valid after the set size */
 	check_eof_blocks(sb, pi, inode->i_size);
@@ -509,8 +509,8 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 end_truncate_blocks:
 	/* we still need to update ctime and mtime */
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+	PM_EQU(pi->i_mtime, cpu_to_le32(inode->i_mtime.tv_sec));
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 	pmfs_memlock_inode(sb, pi);
 	pmfs_flush_buffer(pi, 1, false);
 }
@@ -535,15 +535,15 @@ static int pmfs_increase_btree_height(struct super_block *sb,
 		blocknr = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
 		root = pmfs_get_block(sb, blocknr);
 		pmfs_memunlock_block(sb, root);
-		root[0] = prev_root;
+		PM_EQU(root[0], prev_root);
 		pmfs_memlock_block(sb, root);
 		pmfs_flush_buffer(root, sizeof(*root), false);
 		prev_root = cpu_to_le64(blocknr);
 		height++;
 	}
 	pmfs_memunlock_inode(sb, pi);
-	pi->root = prev_root;
-	pi->height = height;
+	PM_EQU(pi->root, prev_root);
+	PM_EQU(pi->height, height);
 	pmfs_memlock_inode(sb, pi);
 	return errval;
 }
@@ -587,8 +587,8 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 						" %d\n", errval);
 					/* For later recovery in truncate... */
 					pmfs_memunlock_inode(sb, pi);
-					pi->i_flags |= cpu_to_le32(
-							PMFS_EOFBLOCKS_FL);
+					PM_OR_EQU(pi->i_flags, cpu_to_le32(
+							PMFS_EOFBLOCKS_FL));
 					pmfs_memlock_inode(sb, pi);
 					return errval;
 				}
@@ -624,8 +624,8 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 					journal_saved = 1;
 				}
 				pmfs_memunlock_block(sb, node);
-				node[i] = cpu_to_le64(pmfs_get_block_off(sb,
-					    blocknr, PMFS_BLOCK_TYPE_4K));
+				PM_EQU(node[i], cpu_to_le64(pmfs_get_block_off(sb,
+					    blocknr, PMFS_BLOCK_TYPE_4K)));
 				pmfs_memlock_block(sb, node);
 				new_node = 1;
 			}
@@ -709,8 +709,8 @@ int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 			root = cpu_to_le64(pmfs_get_block_off(sb, blocknr,
 					   pi->i_blk_type));
 			pmfs_memunlock_inode(sb, pi);
-			pi->root = root;
-			pi->height = height;
+			PM_EQU(pi->root, root);
+			PM_EQU(pi->height, height);
 			pmfs_memlock_inode(sb, pi);
 		} else {
 			errval = pmfs_increase_btree_height(sb, pi, height);
@@ -786,22 +786,22 @@ int pmfs_init_inode_table(struct super_block *sb)
 	}
 
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_mode = 0;
-	pi->i_uid = 0;
-	pi->i_gid = 0;
-	pi->i_links_count = cpu_to_le16(1);
-	pi->i_flags = 0;
-	pi->height = 0;
-	pi->i_dtime = 0;
+	PM_EQU(pi->i_mode, 0);
+	PM_EQU(pi->i_uid, 0);
+	PM_EQU(pi->i_gid, 0);
+	PM_EQU(pi->i_links_count, cpu_to_le16(1));
+	PM_EQU(pi->i_flags, 0);
+	PM_EQU(pi->height, 0);
+	PM_EQU(pi->i_dtime, 0);
 	if (init_inode_table_size >= PMFS_LARGE_INODE_TABLE_SIZE)
-		pi->i_blk_type = PMFS_BLOCK_TYPE_2M;
+		PM_EQU(pi->i_blk_type, PMFS_BLOCK_TYPE_2M);
 	else
-		pi->i_blk_type = PMFS_BLOCK_TYPE_4K;
+		PM_EQU(pi->i_blk_type, PMFS_BLOCK_TYPE_4K);
 
 	num_blocks = (init_inode_table_size + pmfs_inode_blk_size(pi) - 1) >>
 				pmfs_inode_blk_shift(pi);
 
-	pi->i_size = cpu_to_le64(num_blocks << pmfs_inode_blk_shift(pi));
+	PM_EQU(pi->i_size, cpu_to_le64(num_blocks << pmfs_inode_blk_shift(pi)));
 	/* pmfs_sync_inode(pi); */
 	pmfs_memlock_inode(sb, pi);
 
@@ -891,20 +891,20 @@ bad_inode:
 static void pmfs_update_inode(struct inode *inode, struct pmfs_inode *pi)
 {
 	pmfs_memunlock_inode(inode->i_sb, pi);
-	pi->i_mode = cpu_to_le16(inode->i_mode);
-	pi->i_uid = cpu_to_le32(i_uid_read(inode));
-	pi->i_gid = cpu_to_le32(i_gid_read(inode));
-	pi->i_links_count = cpu_to_le16(inode->i_nlink);
-	pi->i_size = cpu_to_le64(inode->i_size);
-	pi->i_blocks = cpu_to_le64(inode->i_blocks);
-	pi->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-	pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
-	pi->i_generation = cpu_to_le32(inode->i_generation);
+	PM_EQU(pi->i_mode, cpu_to_le16(inode->i_mode));
+	PM_EQU(pi->i_uid, cpu_to_le32(i_uid_read(inode)));
+	PM_EQU(pi->i_gid, cpu_to_le32(i_gid_read(inode)));
+	PM_EQU(pi->i_links_count, cpu_to_le16(inode->i_nlink));
+	PM_EQU(pi->i_size, cpu_to_le64(inode->i_size));
+	PM_EQU(pi->i_blocks, cpu_to_le64(inode->i_blocks));
+	PM_EQU(pi->i_atime, cpu_to_le32(inode->i_atime.tv_sec));
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
+	PM_EQU(pi->i_mtime, cpu_to_le32(inode->i_mtime.tv_sec));
+	PM_EQU(pi->i_generation, cpu_to_le32(inode->i_generation));
 	pmfs_get_inode_flags(inode, pi);
 
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode))
-		pi->dev.rdev = cpu_to_le32(inode->i_rdev);
+		PM_EQU(pi->dev.rdev, cpu_to_le32(inode->i_rdev));
 
 	pmfs_memlock_inode(inode->i_sb, pi);
 }
@@ -944,11 +944,11 @@ static int pmfs_free_inode(struct inode *inode)
 	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
 
 	pmfs_memunlock_inode(sb, pi);
-	pi->root = 0;
+	PM_EQU(pi->root, 0);
 	/* pi->i_links_count = 0;
 	pi->i_xattr = 0; */
-	pi->i_size = 0;
-	pi->i_dtime = cpu_to_le32(get_seconds());
+	PM_EQU(pi->i_size, 0);
+	PM_EQU(pi->i_dtime, cpu_to_le32(get_seconds()));
 	pmfs_memlock_inode(sb, pi);
 
 	pmfs_commit_transaction(sb, trans);
@@ -1085,7 +1085,7 @@ static int pmfs_increase_inode_table_size(struct super_block *sb)
 		i_size += pmfs_inode_blk_size(pi);
 
 		pmfs_memunlock_inode(sb, pi);
-		pi->i_size = cpu_to_le64(i_size);
+		PM_EQU(pi->i_size, cpu_to_le64(i_size));
 		pmfs_memlock_inode(sb, pi);
 
 		sbi->s_free_inodes_count += INODES_PER_BLOCK(pi->i_blk_type);
@@ -1174,10 +1174,10 @@ retry:
 	pmfs_add_logentry(sb, trans, pi, sizeof(*pi), LE_DATA);
 
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_blk_type = PMFS_DEFAULT_BLOCK_TYPE;
-	pi->i_flags = pmfs_mask_flags(mode, diri->i_flags);
-	pi->height = 0;
-	pi->i_dtime = 0;
+	PM_EQU(pi->i_blk_type, PMFS_DEFAULT_BLOCK_TYPE);
+	PM_EQU(pi->i_flags, pmfs_mask_flags(mode, diri->i_flags));
+	PM_EQU(pi->height, 0);
+	PM_EQU(pi->i_dtime, 0);
 	pmfs_memlock_inode(sb, pi);
 
 	sbi->s_free_inodes_count -= 1;
@@ -1209,22 +1209,22 @@ fail1:
 inline void pmfs_update_nlink(struct inode *inode, struct pmfs_inode *pi)
 {
 	pmfs_memunlock_inode(inode->i_sb, pi);
-	pi->i_links_count = cpu_to_le16(inode->i_nlink);
+	PM_EQU(pi->i_links_count, cpu_to_le16(inode->i_nlink));
 	pmfs_memlock_inode(inode->i_sb, pi);
 }
 
 inline void pmfs_update_isize(struct inode *inode, struct pmfs_inode *pi)
 {
 	pmfs_memunlock_inode(inode->i_sb, pi);
-	pi->i_size = cpu_to_le64(inode->i_size);
+	PM_EQU(pi->i_size, cpu_to_le64(inode->i_size));
 	pmfs_memlock_inode(inode->i_sb, pi);
 }
 
 inline void pmfs_update_time(struct inode *inode, struct pmfs_inode *pi)
 {
 	pmfs_memunlock_inode(inode->i_sb, pi);
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-	pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
+	PM_EQU(pi->i_mtime, cpu_to_le32(inode->i_mtime.tv_sec));
 	pmfs_memlock_inode(inode->i_sb, pi);
 }
 
@@ -1266,7 +1266,7 @@ void pmfs_dirty_inode(struct inode *inode, int flags)
 	/* only i_atime should have changed if at all.
 	 * we can do in-place atomic update */
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
+	PM_EQU(pi->i_atime, cpu_to_le32(inode->i_atime.tv_sec)); /* persistent */
 	pmfs_memlock_inode(sb, pi);
 	pmfs_flush_buffer(&pi->i_atime, sizeof(pi->i_atime), true);
 
@@ -1305,7 +1305,7 @@ static void pmfs_block_truncate_page(struct inode *inode, loff_t newsize)
 	if (!bp)
 		return;
 	pmfs_memunlock_block(sb, bp);
-	memset(bp + offset, 0, length);
+	PM_MEMSET(bp + offset, 0, length);
 	pmfs_memlock_block(sb, bp);
 	pmfs_flush_buffer(bp + offset, length, false);
 }
@@ -1338,7 +1338,7 @@ void pmfs_truncate_del(struct inode *inode)
 	/* Atomically delete the inode from the truncate list */
 	if (prev == &sbi->s_truncate) {
 		pmfs_memunlock_range(sb, head, sizeof(*head));
-		head->i_next_truncate = cpu_to_le64(ino_next);
+		PM_EQU(head->i_next_truncate, cpu_to_le64(ino_next));
 		pmfs_memlock_range(sb, head, sizeof(*head));
 		pmfs_flush_buffer(&head->i_next_truncate,
 			sizeof(head->i_next_truncate), false);
@@ -1348,7 +1348,7 @@ void pmfs_truncate_del(struct inode *inode)
 		struct pmfs_inode_truncate_item *li_prv = 
 				pmfs_get_truncate_item(sb, i_prv->i_ino);
 		pmfs_memunlock_range(sb, li_prv, sizeof(*li_prv));
-		li_prv->i_next_truncate = cpu_to_le64(ino_next);
+		PM_EQU(li_prv->i_next_truncate, cpu_to_le64(ino_next));
 		pmfs_memlock_range(sb, li_prv, sizeof(*li_prv));
 		pmfs_flush_buffer(&li_prv->i_next_truncate,
 			sizeof(li_prv->i_next_truncate), false);
@@ -1389,8 +1389,8 @@ void pmfs_truncate_add(struct inode *inode, u64 truncate_size)
 	li = pmfs_get_truncate_item(sb, inode->i_ino);
 
 	pmfs_memunlock_range(sb, li, sizeof(*li));
-	li->i_next_truncate = head->i_next_truncate;
-	li->i_truncatesize = cpu_to_le64(truncate_size);
+	PM_EQU(li->i_next_truncate, head->i_next_truncate);
+	PM_EQU(li->i_truncatesize, cpu_to_le64(truncate_size));
 	pmfs_memlock_range(sb, li, sizeof(*li));
 	pmfs_flush_buffer(li, sizeof(*li), false);
 	/* make sure above is persistent before changing the head pointer */
@@ -1398,7 +1398,7 @@ void pmfs_truncate_add(struct inode *inode, u64 truncate_size)
 	PERSISTENT_BARRIER();
 	/* Atomically insert this inode at the head of the truncate list. */
 	pmfs_memunlock_range(sb, head, sizeof(*head));
-	head->i_next_truncate = cpu_to_le64(inode->i_ino);
+	PM_EQU(head->i_next_truncate, cpu_to_le64(inode->i_ino));
 	pmfs_memlock_range(sb, head, sizeof(*head));
 	pmfs_flush_buffer(&head->i_next_truncate,
 		sizeof(head->i_next_truncate), false);
@@ -1462,25 +1462,25 @@ static int pmfs_update_single_field(struct super_block *sb, struct inode *inode,
 	pmfs_memunlock_inode(sb, pi);
 	switch (ia_valid) {
 		case ATTR_MODE:
-			pi->i_mode = cpu_to_le16(inode->i_mode);
+			PM_EQU(pi->i_mode, cpu_to_le16(inode->i_mode));
 			break;
 		case ATTR_UID:
-			pi->i_uid = cpu_to_le32(i_uid_read(inode));
+			PM_EQU(pi->i_uid, cpu_to_le32(i_uid_read(inode)));
 			break;
 		case ATTR_GID:
-			pi->i_gid = cpu_to_le32(i_gid_read(inode));
+			PM_EQU(pi->i_gid, cpu_to_le32(i_gid_read(inode)));
 			break;
 		case ATTR_SIZE:
-			pi->i_size = cpu_to_le64(inode->i_size);
+			PM_EQU(pi->i_size, cpu_to_le64(inode->i_size));
 			break;
 		case ATTR_ATIME:
-			pi->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
+			PM_EQU(pi->i_atime, cpu_to_le32(inode->i_atime.tv_sec));
 			break;
 		case ATTR_CTIME:
-			pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+			PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 			break;
 		case ATTR_MTIME:
-			pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
+			PM_EQU(pi->i_mtime, cpu_to_le32(inode->i_mtime.tv_sec));
 			break;
 	}
 	pmfs_memlock_inode(sb, pi);
@@ -1591,7 +1591,7 @@ void pmfs_get_inode_flags(struct inode *inode, struct pmfs_inode *pi)
 	if (flags & S_DIRSYNC)
 		pmfs_flags |= FS_DIRSYNC_FL;
 
-	pi->i_flags = cpu_to_le32(pmfs_flags);
+	PM_EQU(pi->i_flags, cpu_to_le32(pmfs_flags));
 }
 
 static ssize_t pmfs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)

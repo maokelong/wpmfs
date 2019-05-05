@@ -61,7 +61,7 @@ hint_set:
 		new_size, pi->i_size, le64_to_cpu(pi->root));
 	pmfs_dbg_verbose("Setting the hint to 0x%x\n", block_type);
 	pmfs_memunlock_inode(sb, pi);
-	pi->i_blk_type = block_type;
+	PM_EQU(pi->i_blk_type, block_type);
 	pmfs_memlock_inode(sb, pi);
 	return 0;
 }
@@ -120,19 +120,18 @@ static long pmfs_fallocate(struct file *file, int mode, loff_t offset,
 
 	pmfs_memunlock_inode(sb, pi);
 	if (ret || (mode & FALLOC_FL_KEEP_SIZE)) {
-		pi->i_flags |= cpu_to_le32(PMFS_EOFBLOCKS_FL);
+		PM_OR_EQU(pi->i_flags, cpu_to_le32(PMFS_EOFBLOCKS_FL));
 	}
 
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && new_size > inode->i_size) {
 		inode->i_size = new_size;
-		pi->i_size = cpu_to_le64(inode->i_size);
+		PM_EQU(pi->i_size, cpu_to_le64(inode->i_size));
 	}
-	pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
-	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+	PM_EQU(pi->i_mtime, cpu_to_le32(inode->i_mtime.tv_sec));
+	PM_EQU(pi->i_ctime, cpu_to_le32(inode->i_ctime.tv_sec));
 	pmfs_memlock_inode(sb, pi);
 
 	pmfs_commit_transaction(sb, trans);
-
 out:
 	inode_unlock(inode);
 	return ret;
@@ -245,7 +244,7 @@ int pmfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	} while (start < end);
 persist:
 	PERSISTENT_MARK();
-	PERSISTENT_BARRIER();
+	// PERSISTENT_BARRIER(); /* not required, usercode is responsible */
 	PMFS_END_TIMING(fsync_t, fsync_time);
 	return 0;
 }
@@ -322,15 +321,19 @@ const struct file_operations pmfs_xip_file_operations = {
 	.llseek			= pmfs_llseek,
 	.read			= pmfs_xip_file_read,
 	.write			= pmfs_xip_file_write,
+//	Pre 4.x.x era
+//	Either implement these or let user-apps know
+//	that this is unimplemented. For eg., MySQL needs aio.
 //	.aio_read		= xip_file_aio_read,
 //	.aio_write		= xip_file_aio_write,
+//	For 4.x and above but troubles NFS or anyone who uses thes *iter fn
 //	.read_iter		= generic_file_read_iter,
 //	.write_iter		= generic_file_write_iter,
 	.mmap			= pmfs_xip_file_mmap,
+// 	Can we avoid VFS if we don't call into generic_* routines ?
 	.open			= generic_file_open,
 	.fsync			= pmfs_fsync,
 	.flush			= pmfs_flush,
-//	.get_unmapped_area	= pmfs_get_unmapped_area,
 	.unlocked_ioctl		= pmfs_ioctl,
 	.fallocate		= pmfs_fallocate,
 #ifdef CONFIG_COMPAT
