@@ -2,6 +2,7 @@
  * wpmfs 注册的 proc 文件
  */
 
+#include "wpmfs_proc.h"
 #include <linux/fdtable.h>
 #include <linux/file.h>
 #include <linux/kernel.h>
@@ -9,8 +10,8 @@
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
 #include "pmfs.h"
-#include "wpmfs_proc.h"
-#include "wpmfs_wr.h"
+#include "wpmfs_wl.h"
+#include "wpmfs_wt.h"
 
 #define BUFSIZE 128
 static struct proc_dir_entry *ent;
@@ -19,7 +20,7 @@ static struct proc_dir_entry *ent;
 struct {
   int fd;
   unsigned opcode;
-  struct wpmfs_sync_cnt packet;
+  struct wt_cnter_info packet;
 } message;
 #pragma pack()
 
@@ -43,8 +44,8 @@ static ssize_t write_handler(struct file *file, const char __user *ubuf,
     wpmfs_error("Failed to read user buffer.\n");
     goto out;
   };
-  if (message.fd < 0 ||
-      (message.opcode != WPMFS_GET_CNT && message.opcode != WPMFS_INC_CNT)) {
+  if (message.fd < 0 || (message.opcode != WPMFS_CMD_GET_CNT &&
+                         message.opcode != WPMFS_CMD_INC_CNT)) {
     wpmfs_error(
         "Received invalid request, "
         "of which, fd = %d, opcode = 0x%x.\n",
@@ -67,12 +68,12 @@ static ssize_t write_handler(struct file *file, const char __user *ubuf,
 
   /* 处理用户请求 */
   switch (message.opcode) {
-    case WPMFS_INC_CNT:
-      wpmfs_inc_cnt(fileUsr->f_inode, message.packet);
+    case WPMFS_CMD_INC_CNT:
+      wpmfs_inc_cnter(fileUsr->f_inode, message.packet);
       break;
 
-    case WPMFS_GET_CNT:
-      wpmfs_get_cnt(fileUsr->f_inode, &message.packet);
+    case WPMFS_CMD_GET_CNT:
+      wpmfs_get_cnter(fileUsr->f_inode, &message.packet);
       break;
 
     default:
@@ -100,7 +101,7 @@ static ssize_t read_handler(struct file *file, char __user *ubuf, size_t count,
   }
 
   /* 传输页写次数给应用 */
-  len = sprintf(buf, "%u\n", message.packet.cnt);
+  len = sprintf(buf, "%llu\n", message.packet.cnt);
   if (copy_to_user(ubuf, buf, len)) {
     wpmfs_error("Failed to fill in user buffer.");
     goto out;

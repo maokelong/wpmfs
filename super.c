@@ -36,6 +36,8 @@
 #include <linux/dax.h>
 #include "pmfs.h"
 #include "wpmfs_proc.h"
+#include "wpmfs_wt.h"
+#include "wpmfs_wl.h"
 
 int measure_timing = 0;
 int support_clwb = 0;
@@ -133,7 +135,11 @@ static int pmfs_get_block_info(struct super_block *sb,
 
 	sbi->virt_addr = virt_addr;
 	sbi->phys_addr = pfn_t_to_pfn(__pfn_t) << PAGE_SHIFT;
-	sbi->initsize = size;
+	_wt_cnter_file.size = (size / (sizeof(wt_cnter_t) + PAGE_SIZE) * \
+								sizeof(wt_cnter_t) + PAGE_SIZE - 1) & PAGE_MASK;
+	sbi->initsize = size -_wt_cnter_file.size;
+	_wt_cnter_file.base = virt_addr + sbi->initsize;
+	_pfn0 = pfn_t_to_pfn(__pfn_t);
 
 	return 0;
 }
@@ -365,6 +371,8 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	if (!first_pmfs_super)
 		first_pmfs_super = sbi->virt_addr;
 #endif
+	if (!ir_pmfs_sbi)
+		ir_pmfs_sbi = sbi;
 
 	pmfs_dbg_verbose("pmfs: Default block size set to 4K\n");
 	blocksize = sbi->blocksize = PMFS_DEF_BLOCK_SIZE_4K;
@@ -472,6 +480,8 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	pmfs_flush_buffer(de, PMFS_DIR_REC_LEN(2), false);
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
+
+	wpmfs_init_all_cnter();
 	return root_i;
 }
 
@@ -685,6 +695,12 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	super = pmfs_get_super(sb);
 
+	if(wpmfs_memory_init(sb)){
+		retval = -EINVAL;
+		printk(KERN_ERR "Memory recovery failed\n");
+		goto out;
+	}
+
 	if (pmfs_journal_soft_init(sb)) {
 		retval = -EINVAL;
 		printk(KERN_ERR "Journal initialization failed\n");
@@ -717,6 +733,8 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (!first_pmfs_super)
 		first_pmfs_super = sbi->virt_addr;
 #endif
+	if (!ir_pmfs_sbi)
+		ir_pmfs_sbi = sbi;
 
 	/* Set it all up.. */
 setup_sb:
@@ -885,6 +903,8 @@ static void pmfs_put_super(struct super_block *sb)
 	if (first_pmfs_super == sbi->virt_addr)
 		first_pmfs_super = NULL;
 #endif
+	if (ir_pmfs_sbi == sbi)
+		ir_pmfs_sbi = NULL;
 
 	/* It's unmount time, so unmap the pmfs memory */
 	if (sbi->virt_addr) {
