@@ -695,7 +695,7 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	super = pmfs_get_super(sb);
 
-	if(wpmfs_memory_init(sb)){
+	if(wpmfs_init(sb)){
 		retval = -EINVAL;
 		printk(KERN_ERR "Memory recovery failed\n");
 		goto out;

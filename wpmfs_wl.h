@@ -6,6 +6,6 @@
 
 extern void* ir_pmfs_sbi;
 
-extern int wpmfs_memory_init(struct super_block* sb);
+extern int wpmfs_init(struct super_block* sb);
 
 #endif /* WPMFS_WL_H */

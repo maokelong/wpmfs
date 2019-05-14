@@ -39,15 +39,10 @@ void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet) {
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 更新页追踪计数器 */
-  if (wt_cnter_add(pfn, packet.cnt)) {
-    // TODO: to signal a interrupt here
-  }
-  wpmfs_debug1("cnter for %llu now reads %llu", packet.pageoff,
-               wt_cnter_read(pfn));
+  wt_cnter_add_int_pfn(pfn, packet.cnt);
+  wpmfs_debug("cnter for %llu now reads %llu", packet.pageoff,
+              _wt_cnter_read(pfn));
   error = 0;
-
-  wpmfs_debug("counter for pfn = %lu now reads %lu.\n", pfn,
-              wt_cnter_read(pfn));
 
 out:
   if (error) wpmfs_error("");
@@ -70,9 +65,14 @@ void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet) {
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 读取页追踪计数器 */
-  packet->cnt = wt_cnter_read(pfn);
+  packet->cnt = _wt_cnter_read(pfn);
   error = 0;
 
 out:
   if (error) wpmfs_error("");
+}
+
+void wpmfs_int_top(unsigned long pfn) {
+  // TODO
+  wpmfs_debug1("pfn = %lu, cnter = %llu", pfn, _wt_cnter_read(pfn));
 }
