@@ -71,8 +71,3 @@ void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet) {
 out:
   if (error) wpmfs_error("");
 }
-
-void wpmfs_int_top(unsigned long pfn) {
-  // TODO
-  wpmfs_debug1("pfn = %lu, cnter = %llu", pfn, _wt_cnter_read(pfn));
-}

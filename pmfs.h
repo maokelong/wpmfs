@@ -51,11 +51,14 @@
 #define prt_err(fmt, args...)                                                \
   printk(KERN_ERR "wpmfs: %s @%s() #%d. " fmt, __FILE__, __func__, __LINE__, \
          ##args)
-#define prt_ast(x)                                                         \
-  if (!(x)) {                                                                 \
-    printk(KERN_WARNING "wpmfs: %s @%s() #%d. Assertion failed.\n", __FILE__, \
-           __func__, __LINE__);                                               \
-  }
+#define prt_ast(x)                                                        \
+  do {                                                                    \
+    if (x) break;                                                         \
+    printk(KERN_ERR "wpmfs: %s @%s() #%d. Assertion failed.\n", __FILE__, \
+           __func__, __LINE__);                                           \
+    dump_stack();                                                         \
+    BUG();                                                                \
+  } while (0);
 
 /* #define pmfs_dbg(s, args...)         pr_debug(s, ## args) */
 #define pmfs_dbg(s, args ...)           pr_info(s, ## args)

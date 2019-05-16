@@ -120,9 +120,9 @@ static struct file_operations proc_ops = {
     .read = read_handler,
 };
 
-int __init init_proc(void) {
+int __init wpmfs_init_proc(void) {
   ent = proc_create("wpmfs_proc", 0660, NULL, &proc_ops);
   return 0;
 }
 
-void __exit destory_proc(void) { proc_remove(ent); }
+void __exit wpmfs_destory_proc(void) { proc_remove(ent); }

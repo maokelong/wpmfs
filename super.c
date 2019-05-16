@@ -684,22 +684,26 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	/* Init a new pmfs instance */
 	if (sbi->s_mount_opt & PMFS_MOUNT_FORMAT) {
+		if(wpmfs_init(sb)){
+			retval = -EINVAL;
+			printk(KERN_ERR "Wpmfs init failed\n");
+			goto out;
+		}
+		
 		root_pi = pmfs_init(sb, sbi->initsize);
 		if (IS_ERR(root_pi))
 			goto out;
 		super = pmfs_get_super(sb);
 		goto setup_sb;
 	}
+
+	//TODO: It's not currently supported to init a existing fs instance.
+	// fix me later. 
+	wpmfs_assert(0);
 	pmfs_dbg_verbose("checking physical address 0x%016llx for pmfs image\n",
 		  (u64)sbi->phys_addr);
 
 	super = pmfs_get_super(sb);
-
-	if(wpmfs_init(sb)){
-		retval = -EINVAL;
-		printk(KERN_ERR "Memory recovery failed\n");
-		goto out;
-	}
 
 	if (pmfs_journal_soft_init(sb)) {
 		retval = -EINVAL;
@@ -780,6 +784,7 @@ setup_sb:
 	}
 
 	clear_opt(sbi->s_mount_opt, MOUNTING);
+	fs_now_ready();
 	retval = 0;
 	return retval;
 out:
@@ -903,6 +908,7 @@ static void pmfs_put_super(struct super_block *sb)
 	if (first_pmfs_super == sbi->virt_addr)
 		first_pmfs_super = NULL;
 #endif
+	wpmfs_exit();
 	if (ir_pmfs_sbi == sbi)
 		ir_pmfs_sbi = NULL;
 
@@ -1131,7 +1137,7 @@ static int __init init_pmfs_fs(void)
 {
 	int rc = 0;
 
-	rc = init_proc();
+	rc = wpmfs_init_proc();
 	if (rc)
 		return rc;
 
@@ -1164,7 +1170,7 @@ out1:
 
 static void __exit exit_pmfs_fs(void)
 {
-	destory_proc();
+	wpmfs_destory_proc();
 	printk(KERN_INFO "Total epochs : %ld\n",
 	atomic64_read(&tot_epoch_count));	
 	unregister_filesystem(&pmfs_fs_type);
