@@ -1,5 +1,6 @@
 *.o
 *.ko
+.cache.mk
 .*.cmd
 .*.swp
 cscope.out
@@ -7,4 +8,5 @@ cscope.out
 Module.symvers
 modules.order
 pmfs.mod.c
+wpmfs.mod.c
 .vscode

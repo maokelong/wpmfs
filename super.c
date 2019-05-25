@@ -135,6 +135,8 @@ static int pmfs_get_block_info(struct super_block *sb,
 
 	sbi->virt_addr = virt_addr;
 	sbi->phys_addr = pfn_t_to_pfn(__pfn_t) << PAGE_SHIFT;
+	
+	/* 这里直接从分配的内存中预留了部分，作为计数器堆的地址空间。 */
 	_wt_cnter_file.size = (size / (sizeof(wt_cnter_t) + PAGE_SIZE) * \
 								sizeof(wt_cnter_t) + PAGE_SIZE - 1) & PAGE_MASK;
 	sbi->initsize = size -_wt_cnter_file.size;
@@ -352,6 +354,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 {
 	unsigned long blocksize;
 	u64 journal_meta_start, journal_data_start, inode_table_start;
+	u64 reserved_size;
 	struct pmfs_inode *root_i;
 	struct pmfs_super_block *super;
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
@@ -413,6 +416,23 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 		journal_data_start, sbi->jsize, inode_table_start);
 	pmfs_dbg_verbose("max file name len %d\n", (unsigned int)PMFS_NAME_LEN);
 
+	/* 
+	 * 在开始初始化 PMFS 之前，首先将静态区域全部映射到 vmalloc space。
+	 * 但由于现在是硬启动，记录静态区域相应内存页的映射表尚不存在。
+	 * 而映射表是建立映射关系的先驱条件，需要先一步初始化好。
+	 * 由于 PMFS 和分配器都还没初始化，我们无法轻松地分配最少寿命的页，
+	 * 因此，我打算直接将映射表这段内存之后的一段连续物理内存映射过去。
+	 * 
+	 * 为什么选择在这里初始化 WPMFS？
+	 * 是因为恰好在这里计算好了静态区域的大小。
+	 */
+	reserved_size = journal_data_start + sbi->jsize;
+	if(wpmfs_init(sb, reserved_size)) {
+		wpmfs_error("Init failed.\n");
+		return ERR_PTR(-ENOMEM);
+	}
+	reserved_size += sbi->vmi.map_size;
+
 	super = pmfs_get_super(sb);
 	pmfs_memunlock_range(sb, super, journal_data_start);
 
@@ -424,7 +444,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	PM_EQU(super->s_journal_offset, cpu_to_le64(journal_meta_start));
 	PM_EQU(super->s_inode_table_offset, cpu_to_le64(inode_table_start));
 
-	pmfs_init_blockmap(sb, journal_data_start + sbi->jsize);
+	pmfs_init_blockmap(sb, reserved_size);
 	pmfs_memlock_range(sb, super, journal_data_start);
 
 	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
@@ -481,7 +501,6 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
 
-	wpmfs_init_all_cnter();
 	return root_i;
 }
 
@@ -684,12 +703,6 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	/* Init a new pmfs instance */
 	if (sbi->s_mount_opt & PMFS_MOUNT_FORMAT) {
-		if(wpmfs_init(sb)){
-			retval = -EINVAL;
-			printk(KERN_ERR "Wpmfs init failed\n");
-			goto out;
-		}
-		
 		root_pi = pmfs_init(sb, sbi->initsize);
 		if (IS_ERR(root_pi))
 			goto out;
@@ -908,7 +921,8 @@ static void pmfs_put_super(struct super_block *sb)
 	if (first_pmfs_super == sbi->virt_addr)
 		first_pmfs_super = NULL;
 #endif
-	wpmfs_exit();
+	/* 清理 wpmfs 申请的资源 */
+	wpmfs_exit(sb);
 	if (ir_pmfs_sbi == sbi)
 		ir_pmfs_sbi = NULL;
 
@@ -953,7 +967,7 @@ inline pmfs_transaction_t *pmfs_alloc_transaction(void)
 		kmem_cache_alloc(pmfs_transaction_cachep, GFP_NOFS);
 }
 
-struct pmfs_blocknode *pmfs_alloc_blocknode(struct super_block *sb)
+struct pmfs_blocknode *pmfs_alloc_blocknode(struct super_block   *sb)
 {
 	struct pmfs_blocknode *p;
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);

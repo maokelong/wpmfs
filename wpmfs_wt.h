@@ -18,7 +18,7 @@ extern void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet);
 extern void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet);
 extern void wpmfs_int_top(unsigned long pfn);
 
-#define wt_cnter_t atomic_long_t
+#define wt_cnter_t atomic64_t
 
 /* Whenever a page suffers 2^power writes, the memory controller will sigal a
  * inetrrupt, suggesting page migraition. */

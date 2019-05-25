@@ -464,7 +464,7 @@ int pmfs_journal_hard_init(struct super_block *sb, uint64_t base,
 	PM_EQU(journal->redo_logging, 0);
 	pmfs_memlock_range(sb, journal, sizeof(*journal));
 
-	sbi->journal_base_addr = pmfs_get_block(sb, base);
+	sbi->journal_base_addr = wpmfs_get_vblock(sb, base);
 	pmfs_memunlock_range(sb, sbi->journal_base_addr, size);
 	memset_nt(sbi->journal_base_addr, 0, size);
 	pmfs_memlock_range(sb, sbi->journal_base_addr, size);
@@ -531,7 +531,6 @@ pmfs_transaction_t *pmfs_new_transaction(struct super_block *sb,
 	if (!trans)
 		return ERR_PTR(-ENOMEM);
 	memset(trans, 0, sizeof(*trans));
-
 	trans->num_used = 0; /* Not persistent, returned by kmem_cache_alloc */
 	trans->num_entries = max_log_entries;
 	trans->t_journal = journal;

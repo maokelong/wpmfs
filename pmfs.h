@@ -302,6 +302,15 @@ struct pmfs_inode_info {
 	struct inode	vfs_inode;
 };
 
+/* 
+ * WPMFS 映射内存相关信息
+ */
+struct wpmfs_vm_info {
+	void *addr;
+	unsigned long map_size;
+	//TODO: 根据需要扩展更多字段
+};
+
 /*
  * PMFS super-block data in memory
  */
@@ -357,13 +366,17 @@ struct pmfs_sb_info {
 	/* truncate list related structures */
 	struct list_head s_truncate;
 	struct mutex s_truncate_lock;
+	
+	/* vmalloc space management related structure */
+	struct wpmfs_vm_info vmi;
+	
 };
 
 static inline struct pmfs_sb_info *PMFS_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
-}
 
+}
 static inline struct pmfs_inode_info *PMFS_I(struct inode *inode)
 {
 	return container_of(inode, struct pmfs_inode_info, vfs_inode);
@@ -375,7 +388,8 @@ static inline struct pmfs_super_block *pmfs_get_super(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-	return (struct pmfs_super_block *)sbi->virt_addr;
+	// return (struct pmfs_super_block *)sbi->virt_addr;
+	return (struct pmfs_super_block *)sbi->vmi.addr;
 }
 
 static inline pmfs_journal_t *pmfs_get_journal(struct super_block *sb)
@@ -397,17 +411,26 @@ static inline struct pmfs_inode *pmfs_get_inode_table(struct super_block *sb)
 static inline struct pmfs_super_block *pmfs_get_redund_super(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	wpmfs_assert(0);
 
-	return (struct pmfs_super_block *)(sbi->virt_addr + PMFS_SB_SIZE);
+	return (struct pmfs_super_block *)(sbi->vmi.addr + PMFS_SB_SIZE);
 }
 
 /* If this is part of a read-modify-write of the block,
  * pmfs_memunlock_block() before calling! */
 static inline void *pmfs_get_block(struct super_block *sb, u64 block)
 {
-	struct pmfs_super_block *ps = pmfs_get_super(sb);
+	// struct pmfs_super_block *ps = pmfs_get_super(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-	return block ? ((void *)ps + block) : NULL;
+	return block ? ((void *)sbi->virt_addr + block) : NULL;
+}
+
+static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
+{
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+
+	return offset ? ((void *)sbi->vmi.addr + offset) : NULL;
 }
 
 /* uses CPU instructions to atomically write up to 8 bytes */
@@ -540,7 +563,8 @@ static inline uint32_t pmfs_inode_blk_size (struct pmfs_inode *pi)
 static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 						  u64	ino)
 {
-	struct pmfs_super_block *ps = pmfs_get_super(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	
 	struct pmfs_inode *inode_table = pmfs_get_inode_table(sb);
 	u64 bp, block, ino_offset;
 
@@ -553,7 +577,7 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 	if (bp == 0)
 		return NULL;
 	ino_offset = (ino & (pmfs_inode_blk_size(inode_table) - 1));
-	return (struct pmfs_inode *)((void *)ps + bp + ino_offset);
+	return (struct pmfs_inode *)((void *)sbi->virt_addr + bp + ino_offset);
 }
 
 static inline u64
