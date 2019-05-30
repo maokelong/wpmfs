@@ -921,10 +921,6 @@ static void pmfs_put_super(struct super_block *sb)
 	if (first_pmfs_super == sbi->virt_addr)
 		first_pmfs_super = NULL;
 #endif
-	/* 清理 wpmfs 申请的资源 */
-	wpmfs_exit(sb);
-	if (ir_pmfs_sbi == sbi)
-		ir_pmfs_sbi = NULL;
 
 	/* It's unmount time, so unmap the pmfs memory */
 	if (sbi->virt_addr) {
@@ -939,6 +935,12 @@ static void pmfs_put_super(struct super_block *sb)
 		list_del(&i->link);
 		pmfs_free_blocknode(sb, i);
 	}
+
+	/* 清理 wpmfs 申请的资源 */
+	wpmfs_exit(sb);
+	if (ir_pmfs_sbi == sbi)
+		ir_pmfs_sbi = NULL;
+
 	sb->s_fs_info = NULL;
 	pmfs_dbgmask = 0;
 	kfree(sbi);

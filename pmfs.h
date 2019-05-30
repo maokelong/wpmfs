@@ -23,6 +23,7 @@
 #include <linux/uio.h>
 #include <linux/version.h>
 #include <linux/pfn_t.h>
+#include <linux/mm.h>
 
 #include "pmfs_def.h"
 #include "journal.h"
@@ -583,9 +584,12 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 static inline u64
 pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
 {
-	PMFS_ASSERT((addr >= sbi->virt_addr) &&
-			(addr < (sbi->virt_addr + sbi->initsize)));
-	return (u64)(addr - sbi->virt_addr);
+	// for log entry only
+	PMFS_ASSERT(is_vmalloc_addr(addr) ||
+							((addr >= sbi->virt_addr) &&
+							 (addr < (sbi->virt_addr + sbi->initsize))));
+	return is_vmalloc_addr(addr) ? (u64)(addr - sbi->vmi.addr):
+																 (u64)(addr - sbi->virt_addr);
 }
 
 static inline u64
