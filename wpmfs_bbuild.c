@@ -155,9 +155,13 @@ void pmfs_save_blocknode_mappings(struct super_block *sb)
 	u64 bp;
 	int j, k;
 	int errval;
-	
+  
+#ifndef WPMFS
+	num_blocks = ((sbi->num_blocknode_allocated * sizeof(struct 
 		pmfs_blocknode_lowhigh) - 1) >> sb->s_blocksize_bits) + 1;
-
+#else
+  num_blocks = 1;
+#endif
 	/* 2 log entry for inode, 2 lentry for super-block */
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_SB_LENTRIES);
 	if (IS_ERR(trans))

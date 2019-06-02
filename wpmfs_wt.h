@@ -24,6 +24,7 @@ extern void wpmfs_int_top(unsigned long pfn);
  * inetrrupt, suggesting page migraition. */
 // TODO: 28
 #define INTERRUPT_THRESHOLD_POWER (11)
+#define CELL_ENDURANCE_POWER (11)
 
 extern size_t _int_thres_power;
 static inline uint64_t get_int_thres_size(void) {
@@ -33,6 +34,10 @@ static inline uint64_t get_int_thres_mask(void) {
   return ~(get_int_thres_size() - 1);
 }
 extern void set_int_threshold(int power);
+
+static inline uint64_t get_cell_idea_endurance(void) {
+  return 1 << CELL_ENDURANCE_POWER;
+}
 
 /* Descriptor of wt counter file. */
 struct wt_cnter_file {
@@ -52,6 +57,11 @@ struct wt_cnter_info {
   uint64_t pageoff;  // 被统计页起始位置相对于文件的偏移
   uint64_t cnt;      // 被统计页的写次数（读写取决于命令）
 };
+
+static inline uint64_t wt_cnter_read(unsigned long blocknr) {
+  wt_cnter_t* pcnter = _wt_cnter_file.base + blocknr + _pfn0;
+  return atomic_long_read(pcnter);
+}
 
 static inline uint64_t _wt_cnter_read(unsigned long pfn) {
   wt_cnter_t* pcnter = _wt_cnter_file.base + pfn - _pfn0;

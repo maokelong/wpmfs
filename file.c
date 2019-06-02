@@ -42,6 +42,8 @@ int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
 	if (!pmfs_can_set_blocksize_hint(pi, new_size))
 		return 0;
 
+//TODO: wpmfs currently only support 4K blocks
+#ifndef WPMFS
 	if (new_size >= 0x40000000) {   /* 1G */
 		block_type = PMFS_BLOCK_TYPE_1G;
 		goto hint_set;
@@ -51,11 +53,14 @@ int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
 		block_type = PMFS_BLOCK_TYPE_2M;
 		goto hint_set;
 	}
+#endif
 
 	/* defaulting to 4K */
 	block_type = PMFS_BLOCK_TYPE_4K;
 
+#ifdef WPMFS
 hint_set:
+#endif
 	pmfs_dbg_verbose(
 		"Hint: new_size 0x%llx, i_size 0x%llx, root 0x%llx\n",
 		new_size, pi->i_size, le64_to_cpu(pi->root));

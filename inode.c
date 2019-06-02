@@ -690,6 +690,7 @@ int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 			height++;
 		}
 		if (height > 3) {
+			/* when height == 3, max_blocks can be 1<<(3*9) */
 			pmfs_dbg("[%s:%d] Max file size. Cant grow the file\n",
 				__func__, __LINE__);
 			errval = -ENOSPC;
@@ -777,9 +778,12 @@ int pmfs_init_inode_table(struct super_block *sb)
 
 	if (sbi->num_inodes == 0) {
 		/* initial inode table size was not specified. */
+	//TODO: wpmfs currently only support 4K blocks
+	#ifndef WPMFS
 		if (sbi->initsize >= PMFS_LARGE_INODE_TABLE_THREASHOLD)
 			init_inode_table_size = PMFS_LARGE_INODE_TABLE_SIZE;
 		else
+	#endif
 			init_inode_table_size = PMFS_DEF_BLOCK_SIZE_4K;
 	} else {
 		init_inode_table_size = sbi->num_inodes << PMFS_INODE_BITS;
@@ -793,9 +797,12 @@ int pmfs_init_inode_table(struct super_block *sb)
 	PM_EQU(pi->i_flags, 0);
 	PM_EQU(pi->height, 0);
 	PM_EQU(pi->i_dtime, 0);
+//TODO: wpmfs currently only support 4K blocks
+#ifndef WPMFS
 	if (init_inode_table_size >= PMFS_LARGE_INODE_TABLE_SIZE)
 		PM_EQU(pi->i_blk_type, PMFS_BLOCK_TYPE_2M);
 	else
+#endif
 		PM_EQU(pi->i_blk_type, PMFS_BLOCK_TYPE_4K);
 
 	num_blocks = (init_inode_table_size + pmfs_inode_blk_size(pi) - 1) >>

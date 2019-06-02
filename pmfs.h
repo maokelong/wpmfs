@@ -28,6 +28,7 @@
 #include "pmfs_def.h"
 #include "journal.h"
 
+#define WPMFS 1
 #define PAGE_SHIFT_2M 21
 #define PAGE_SHIFT_1G 30
 
@@ -367,10 +368,14 @@ struct pmfs_sb_info {
 	/* truncate list related structures */
 	struct list_head s_truncate;
 	struct mutex s_truncate_lock;
-	
-	/* vmalloc space management related structure */
+	/* wpmfs: vmalloc space management related structure */
 	struct wpmfs_vm_info vmi;
 	
+	/* wpmfs: block management related structure */
+	int num_bins;
+	struct list_head *block_bins;
+	unsigned long	unused_block_low;
+	unsigned long	unused_block_high;
 };
 
 static inline struct pmfs_sb_info *PMFS_SB(struct super_block *sb)
@@ -432,6 +437,12 @@ static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
 	return offset ? ((void *)sbi->vmi.addr + offset) : NULL;
+}
+
+static inline u64 wpmfs_get_blocknr_by_addr(struct super_block *sb, void* addr)
+{
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	return ((u64)addr - (u64)sbi->virt_addr) >> PAGE_SHIFT;
 }
 
 /* uses CPU instructions to atomically write up to 8 bytes */
@@ -584,12 +595,17 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 static inline u64
 pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
 {
-	// for log entry only
-	PMFS_ASSERT(is_vmalloc_addr(addr) ||
-							((addr >= sbi->virt_addr) &&
-							 (addr < (sbi->virt_addr + sbi->initsize))));
-	return is_vmalloc_addr(addr) ? (u64)(addr - sbi->vmi.addr):
-																 (u64)(addr - sbi->virt_addr);
+	PMFS_ASSERT((addr >= sbi->virt_addr) &&
+			(addr < (sbi->virt_addr + sbi->initsize)));
+	return (u64)(addr - sbi->virt_addr);
+}
+
+static inline u64
+pmfs_get_vaddr_off(struct pmfs_sb_info *sbi, void *vaddr)
+{
+	//TODO: proper check here
+	PMFS_ASSERT(vaddr >= sbi->vmi.addr);
+	return (u64)(vaddr - sbi->vmi.addr);
 }
 
 static inline u64
@@ -653,6 +669,12 @@ static inline void check_eof_blocks(struct super_block *sb,
 		(size + sb->s_blocksize) > (le64_to_cpu(pi->i_blocks)
 			<< sb->s_blocksize_bits))
 		pi->i_flags &= cpu_to_le32(~PMFS_EOFBLOCKS_FL);
+}
+
+static inline int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	int target_bin = (int)(wt_cnter_read(blocknr) / get_int_thres_size());
+	return (target_bin < sbi->num_bins) ? target_bin : sbi->num_bins - 1;
 }
 
 #include "wprotect.h"
