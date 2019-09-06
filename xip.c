@@ -16,6 +16,10 @@
 #include <linux/buffer_head.h>
 #include <asm/cpufeature.h>
 #include <asm/pgtable.h>
+#include <linux/iomap.h>
+#include <linux/dax.h>
+#include <linux/rmap.h>
+#include <linux/kallsyms.h>
 #include "pmfs.h"
 #include "xip.h"
 
@@ -32,7 +36,7 @@ do_xip_mapping_read(struct address_space *mapping,
 	unsigned long offset;
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
-	timing_t memcpy_time;
+	INIT_TIMING(memcpy_time);
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -134,7 +138,7 @@ ssize_t pmfs_xip_file_read(struct file *filp, char __user *buf,
 			    size_t len, loff_t *ppos)
 {
 	ssize_t res;
-	timing_t xip_read_time;
+	INIT_TIMING(xip_read_time);
 
 	PMFS_START_TIMING(xip_read_t, xip_read_time);
 //	rcu_read_lock();
@@ -187,7 +191,8 @@ __pmfs_xip_file_write(struct address_space *mapping, const char __user *buf,
 	size_t      bytes;
 	ssize_t     written = 0;
 	struct pmfs_inode *pi;
-	timing_t memcpy_time, write_time;
+	INIT_TIMING(memcpy_time);
+	INIT_TIMING(write_time);
 
 	PMFS_START_TIMING(internal_write_t, write_time);
 	pi = pmfs_get_inode(sb, inode->i_ino);
@@ -258,7 +263,7 @@ static ssize_t pmfs_file_write_fast(struct super_block *sb, struct inode *inode,
 {
 	void *xmem = pmfs_get_block(sb, block);
 	size_t copied, ret = 0, offset;
-	timing_t memcpy_time;
+	INIT_TIMING(memcpy_time);
 
 	offset = pos & (sb->s_blocksize - 1);
 	PM_TX_BEGIN();
@@ -350,7 +355,8 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	size_t count, offset, eblk_offset, ret;
 	unsigned long start_blk, end_blk, num_blocks, max_logentries;
 	bool same_block;
-	timing_t xip_write_time, xip_write_fast_time;
+	INIT_TIMING(xip_write_time);
+	INIT_TIMING(xip_write_fast_time);
 
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
@@ -439,70 +445,6 @@ out:
 	inode_unlock(inode);
 	sb_end_write(inode->i_sb);
 	PMFS_END_TIMING(xip_write_t, xip_write_time);
-	return ret;
-}
-
-/* OOM err return with xip file fault handlers doesn't mean anything.
- * It would just cause the OS to go an unnecessary killing spree !
- */
-static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
-				  struct vm_fault *vmf)
-{
-	struct address_space *mapping = vma->vm_file->f_mapping;
-	struct inode *inode = mapping->host;
-	pgoff_t size;
-	void *xip_mem;
-	unsigned long xip_pfn;
-	int err;
-
-	size = (i_size_read(inode) + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	if (vmf->pgoff >= size) {
-		pmfs_dbg("[%s:%d] pgoff >= size(SIGBUS). vm_start(0x%lx),"
-			" vm_end(0x%lx), pgoff(0x%lx), VA(%lx), size 0x%lx\n",
-			__func__, __LINE__, vma->vm_start, vma->vm_end,
-			vmf->pgoff, (unsigned long)vmf->address, size);
-		return VM_FAULT_SIGBUS;
-	}
-
-	err = pmfs_get_xip_mem(mapping, vmf->pgoff, 1, &xip_mem, &xip_pfn);
-	if (unlikely(err)) {
-		pmfs_dbg("[%s:%d] get_xip_mem failed(OOM). vm_start(0x%lx),"
-			" vm_end(0x%lx), pgoff(0x%lx), VA(%lx)\n",
-			__func__, __LINE__, vma->vm_start, vma->vm_end,
-			vmf->pgoff, (unsigned long)vmf->address);
-		return VM_FAULT_SIGBUS;
-	}
-
-	pmfs_dbg_mmapv("[%s:%d] vm_start(0x%lx), vm_end(0x%lx), pgoff(0x%lx), "
-			"BlockSz(0x%lx), VA(0x%lx)->PA(0x%lx)\n", __func__,
-			__LINE__, vma->vm_start, vma->vm_end, vmf->pgoff,
-			PAGE_SIZE, (unsigned long)vmf->address,
-			(unsigned long)xip_pfn << PAGE_SHIFT);
-
-	err = vm_insert_mixed(vma, (unsigned long)vmf->address,
-			pfn_to_pfn_t(xip_pfn));
-
-	if (err == -ENOMEM)
-		return VM_FAULT_SIGBUS;
-	/*
-	 * err == -EBUSY is fine, we've raced against another thread
-	 * that faulted-in the same page
-	 */
-	if (err != -EBUSY)
-		BUG_ON(err);
-	return VM_FAULT_NOPAGE;
-}
-
-static int pmfs_xip_file_fault(struct vm_fault *vmf)
-{
-	int ret = 0;
-	timing_t fault_time;
-
-	PMFS_START_TIMING(mmap_fault_t, fault_time);
-	rcu_read_lock();
-	ret = __pmfs_xip_file_fault(vmf->vma, vmf);
-	rcu_read_unlock();
-	PMFS_END_TIMING(mmap_fault_t, fault_time);
 	return ret;
 }
 
@@ -610,8 +552,202 @@ int pmfs_get_xip_mem(struct address_space *mapping, pgoff_t pgoff, int create,
 	return 0;
 }
 
+int pmfs_xip_get_blocks(struct inode *inode, sector_t iblock, sector_t *block,
+                        int create, bool taking_lock) {
+  int rc;
+
+  rc = __pmfs_get_block(inode, iblock, create, block);
+  if (rc) {
+    pmfs_dbg(
+        "[%s:%d] rc(%d), sb->physaddr(0x%llx), iblock(0x%llx),"
+        " create(0x%x), block(0x%lx)\n",
+        __func__, __LINE__, rc, PMFS_SB(inode->i_sb)->phys_addr, iblock, create,
+        block);
+    return rc;
+  }
+
+  return 0;
+}
+
+int pmfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
+                     unsigned int flags, struct iomap *iomap,
+                     bool taking_lock) {
+  struct pmfs_sb_info *sbi = PMFS_SB(inode->i_sb);
+  unsigned int blkbits = inode->i_blkbits;
+  unsigned long first_block = offset >> blkbits;
+  unsigned long max_blocks = (length + (1 << blkbits) - 1) >> blkbits;
+  bool new = false;
+  sector_t block_dev;
+  int ret;
+
+  // huge mmap is not supported.
+  BUG_ON(max_blocks != 1);
+
+  ret = pmfs_xip_get_blocks(inode, first_block, &block_dev, flags & IOMAP_WRITE,
+                            taking_lock);
+
+  if (ret < 0) {
+    pmfs_dbg_verbose("%s: pmfs_dax_get_blocks failed %d", __func__, ret);
+    return ret;
+  }
+
+  iomap->flags = 0;
+  iomap->bdev = inode->i_sb->s_bdev;
+  iomap->dax_dev = sbi->s_dax_dev;
+  iomap->offset = (u64)first_block << blkbits;
+
+  // TODO: 是否需要应对文件打洞？
+  iomap->type = IOMAP_MAPPED;
+  iomap->addr = block_dev;
+  iomap->length = 1 << blkbits;
+  iomap->flags |= IOMAP_F_SHARED;
+
+  pmfs_dbg_rmap("before rmap: pfn allocated when fault = 0x%lx\n",
+                pmfs_get_pfn(inode->i_sb, block_dev));
+
+  if (new) iomap->flags |= IOMAP_F_NEW;
+  return 0;
+}
+
+int pmfs_iomap_end(struct inode *inode, loff_t offset, loff_t length,
+                   ssize_t written, unsigned int flags, struct iomap *iomap) {
+  if (iomap->type == IOMAP_MAPPED && written < length && (flags & IOMAP_WRITE))
+    truncate_pagecache(inode, inode->i_size);
+
+  return 0;
+}
+
+static int pmfs_iomap_begin_lock(struct inode *inode, loff_t offset,
+                                 loff_t length, unsigned int flags,
+                                 struct iomap *iomap) {
+  return pmfs_iomap_begin(inode, offset, length, flags, iomap, true);
+}
+
+static struct iomap_ops pmfs_iomap_ops_lock = {
+    .iomap_begin = pmfs_iomap_begin_lock,
+    .iomap_end = pmfs_iomap_end,
+};
+
+static bool print_page_vaddr_one(struct page *page, struct vm_area_struct *vma,
+                                 unsigned long addr, void *arg) {
+  static bool (*ppage_vma_mapped_walk)(struct page_vma_mapped_walk *);
+  struct page_vma_mapped_walk pvmw = {
+      .page = page,
+      .vma = vma,
+      .address = addr,
+  };
+
+  if (!ppage_vma_mapped_walk) {
+    ppage_vma_mapped_walk =
+        (void *)kallsyms_lookup_name("page_vma_mapped_walk");
+    if (!ppage_vma_mapped_walk) {
+      pmfs_dbg_rmap("rmap: cannot find symbol page_vma_mapped_walk.\n");
+      return false;
+    }
+  }
+
+  while ((*ppage_vma_mapped_walk)(&pvmw)) {
+    addr = pvmw.address;
+    pmfs_dbg_rmap("rmap walk: usr vaddr = 0x%lx\n", addr);
+    if (pvmw.pte) {
+      unsigned long pfn = pte_pfn(*pvmw.pte);
+      pmfs_dbg_rmap("rmap walk: pfn = 0x%lx\n", pfn);
+    }
+  }
+  return true;
+}
+
+void debug_page_fault_done(struct vm_fault *vmf) {
+  pgd_t *pgd = NULL;
+  pmd_t *pmd = NULL;
+  p4d_t *p4d = NULL;
+  pte_t *pte = NULL;
+  pud_t *pud = NULL;
+  unsigned long address = vmf->address;
+
+  pmfs_dbg_rmap("before rmap: usr vaddr faulted = 0x%lx\n", address);
+  pgd = pgd_offset(vmf->vma->vm_mm, address);
+  if (pgd) p4d = p4d_offset(pgd, address);
+  if (p4d) pud = pud_offset(p4d, address);
+  if (pud) pmd = pmd_offset(pud, address);
+  if (pmd) pte = pte_offset_map(pmd, address);
+
+  if (pte) {
+    struct page *page = pte_page(*pte);
+    struct address_space *mapping;
+    static void (*prmap_walk)(struct page *, struct rmap_walk_control *);
+    static struct rmap_walk_control wc = {.rmap_one = print_page_vaddr_one};
+
+    mapping = page_mapping(page);
+
+    if (!mapping) {
+      printk(KERN_ERR "missing rmap.\n");
+      return;
+    }
+
+    if (!prmap_walk) {
+      prmap_walk = (void *)kallsyms_lookup_name("rmap_walk");
+      if (!prmap_walk) {
+        printk(KERN_ERR "cannot find symbol rmap_walk.\n");
+        return;
+      }
+    }
+    (*prmap_walk)(page, &wc);
+  } else {
+    printk(KERN_ERR "missing pte\n");
+  }
+}
+
+static vm_fault_t pmfs_xip_file_huge_fault(struct vm_fault *vmf,
+                                           enum page_entry_size pe_size) {
+  vm_fault_t ret;
+  int error = 0;
+  pfn_t pfn;
+  INIT_TIMING(fault_time);
+  struct address_space *mapping = vmf->vma->vm_file->f_mapping;
+  struct inode *inode = mapping->host;
+
+  PMFS_START_TIMING(mmap_fault_t, fault_time);
+
+  pmfs_dbg_verbose("%s: inode %lu, pgoff %lu\n", __func__, inode->i_ino,
+                   vmf->pgoff);
+
+  BUG_ON(pe_size != 0);
+
+  if (vmf->flags & FAULT_FLAG_WRITE) file_update_time(vmf->vma->vm_file);
+
+  ret = dax_iomap_fault(vmf, pe_size, &pfn, &error, &pmfs_iomap_ops_lock);
+
+  PMFS_END_TIMING(mmap_fault_t, fault_time);
+
+  debug_page_fault_done(vmf);
+  return ret;
+}
+
+static vm_fault_t pmfs_xip_file_pfn_mkwrite(struct vm_fault *vmf) {
+  struct address_space *mapping = vmf->vma->vm_file->f_mapping;
+  struct inode *inode = mapping->host;
+
+  pmfs_dbg_verbose("%s: inode %lu, pgoff %lu, flags 0x%x\n", __func__,
+                   inode->i_ino, vmf->pgoff, vmf->flags);
+
+  return pmfs_xip_file_huge_fault(vmf, PE_SIZE_PTE);
+}
+
+static vm_fault_t pmfs_xip_file_fault(struct vm_fault *vmf) {
+  struct address_space *mapping = vmf->vma->vm_file->f_mapping;
+  struct inode *inode = mapping->host;
+
+  pmfs_dbg_verbose("%s: inode %lu, pgoff %lu, flags 0x%x\n", __func__,
+                   inode->i_ino, vmf->pgoff, vmf->flags);
+
+  return pmfs_xip_file_huge_fault(vmf, PE_SIZE_PTE);
+}
+
 static const struct vm_operations_struct pmfs_xip_vm_ops = {
-	.fault	= pmfs_xip_file_fault,
+	.fault = pmfs_xip_file_fault,
+	.page_mkwrite = pmfs_xip_file_fault,
+	.pfn_mkwrite = pmfs_xip_file_pfn_mkwrite,
 };
 
 int pmfs_xip_file_mmap(struct file *file, struct vm_area_struct *vma)

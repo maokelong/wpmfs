@@ -113,8 +113,8 @@ static int pmfs_get_block_info(struct super_block *sb,
 	long size;
 	int ret;
 
-	ret = bdev_dax_supported(sb, PAGE_SIZE);
-	if (ret) {
+	ret = bdev_dax_supported(sb->s_bdev, PAGE_SIZE);
+	if (!ret) {
 		pmfs_err(sb, "device does not support DAX\n");
 		return -EINVAL;
 	}
@@ -125,6 +125,7 @@ static int pmfs_get_block_info(struct super_block *sb,
 		pmfs_err(sb, "Couldn't retrieve DAX device\n");
 		return -EINVAL;
 	}
+	sbi->s_dax_dev = dax_dev;
 
 	size = dax_direct_access(dax_dev, 0, LONG_MAX / PAGE_SIZE,
 				&virt_addr, &__pfn_t) * PAGE_SIZE;
@@ -1187,7 +1188,7 @@ out1:
 static void __exit exit_pmfs_fs(void)
 {
 	wpmfs_destory_proc();
-	printk(KERN_INFO "Total epochs : %ld\n",
+	printk(KERN_INFO "Total epochs : %lld\n",
 	atomic64_read(&tot_epoch_count));	
 	unregister_filesystem(&pmfs_fs_type);
 	destroy_inodecache();

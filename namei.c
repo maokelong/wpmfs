@@ -234,7 +234,7 @@ static int pmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	int err = PTR_ERR(inode);
 	struct super_block *sb = dir->i_sb;
 	pmfs_transaction_t *trans;
-	timing_t create_time;
+	INIT_TIMING(create_time);
 
 	PMFS_START_TIMING(create_t, create_time);
 	/* two log entries for new inode, 1 lentry for dir inode, 1 for dir
@@ -416,7 +416,7 @@ static int pmfs_unlink(struct inode *dir, struct dentry *dentry)
 	pmfs_transaction_t *trans;
 	struct super_block *sb = inode->i_sb;
 	struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
-	timing_t unlink_time;
+	INIT_TIMING(unlink_time);
 
 	PMFS_START_TIMING(unlink_t, unlink_time);
 

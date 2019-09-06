@@ -464,7 +464,8 @@ int pmfs_setup_blocknode_map(struct super_block *sb)
 	struct scan_bitmap bm;
 	unsigned long initsize = le64_to_cpu(super->s_size);
 	bool value = false;
-	timing_t start, end;
+	INIT_TIMING(start);
+	INIT_TIMING(end);
 
 	/* Always check recovery time */
 	if (measure_timing == 0)

@@ -80,6 +80,7 @@ extern unsigned int pmfs_dbgmask;
 #define PMFS_DBGMASK_MMAPVVERBOSE      (0x00000008)
 #define PMFS_DBGMASK_VERBOSE           (0x00000010)
 #define PMFS_DBGMASK_TRANSACTION       (0x00000020)
+#define PMFS_DBGMASK_RMAP              (0x00000040)
 
 #define pmfs_dbg_mmaphuge(s, args ...)		 \
 	((pmfs_dbgmask & PMFS_DBGMASK_MMAPHUGE) ? pmfs_dbg(s, args) : 0)
@@ -94,6 +95,9 @@ extern unsigned int pmfs_dbgmask;
 	((pmfs_dbgmask & PMFS_DBGMASK_VERBOSE) ? pmfs_dbg(s, ##args) : 0)
 #define pmfs_dbg_trans(s, args ...)		 \
 	((pmfs_dbgmask & PMFS_DBGMASK_TRANSACTION) ? pmfs_dbg(s, ##args) : 0)
+
+#define pmfs_dbg_rmap(s, args ...)		 \
+	((pmfs_dbgmask & PMFS_DBGMASK_RMAP) ? pmfs_dbg(s, ##args) : 0)
 
 #define pmfs_set_bit                   __test_and_set_bit_le
 #define pmfs_clear_bit                 __test_and_clear_bit_le
@@ -163,12 +167,14 @@ extern atomic64_t fsync_pages;
 
 typedef struct timespec timing_t;
 
+#define	INIT_TIMING(X)	timing_t X = {0}
+
 #define PMFS_START_TIMING(name, start) \
 	{if (measure_timing) getrawmonotonic(&start);}
 
 #define PMFS_END_TIMING(name, start) \
 	{if (measure_timing) { \
-		timing_t end; \
+		INIT_TIMING(end); \
 		getrawmonotonic(&end); \
 		Timingstats[name] += \
 			(end.tv_sec - start.tv_sec) * 1000000000 + \
@@ -322,6 +328,7 @@ struct pmfs_sb_info {
 	 * the pointer to the super block)
 	 */
 	struct block_device *s_bdev;
+	struct dax_device *s_dax_dev;
 	phys_addr_t	phys_addr;
 	void		*virt_addr;
 	struct list_head block_inuse_head;

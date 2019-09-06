@@ -30,7 +30,7 @@ atomic64_t fsync_pages = ATOMIC_INIT(0);
 void pmfs_print_IO_stats(void)
 {
 	printk("=========== PMFS I/O stats ===========\n");
-	printk("Fsync %ld pages\n", atomic64_read(&fsync_pages));
+	printk("Fsync %lld pages\n", atomic64_read(&fsync_pages));
 }
 
 void pmfs_print_timing_stats(void)

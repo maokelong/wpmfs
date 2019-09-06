@@ -511,7 +511,7 @@ pmfs_transaction_t *pmfs_new_transaction(struct super_block *sb,
 	uint32_t head, tail, req_size, avail_size, freed_size;
 	uint64_t base;
 	int retry = 0;
-	timing_t log_time;
+	INIT_TIMING(log_time);
 #if 0
 	trans = pmfs_current_transaction();
 
@@ -653,7 +653,7 @@ int pmfs_add_logentry(struct super_block *sb,
 	int num_les = 0, i;
 	uint64_t le_start = size ? pmfs_get_addr_off(sbi, addr) : 0;
 	uint8_t le_size;
-	timing_t add_log_time;
+	INIT_TIMING(add_log_time);
 
 	if (trans == NULL)
 		return -EINVAL;
@@ -727,7 +727,7 @@ int pmfs_add_logentry(struct super_block *sb,
 int pmfs_commit_transaction(struct super_block *sb,
 		pmfs_transaction_t *trans)
 {
-	timing_t commit_time;
+	INIT_TIMING(commit_time);
 
 	if (trans == NULL)
 		return 0;

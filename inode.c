@@ -320,7 +320,7 @@ unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 	unsigned long first_blocknr;
 	unsigned int freed;
 	bool mpty;
-	timing_t free_time;
+	INIT_TIMING(free_time);
 
 	if (!root)
 		return 0;
@@ -663,7 +663,7 @@ int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 	unsigned int data_bits = blk_type_to_shift[pi->i_blk_type];
 	unsigned int blk_shift, meta_bits = META_BLK_SHIFT;
 	unsigned long blocknr, first_blocknr, last_blocknr, total_blocks;
-	timing_t alloc_time;
+	INIT_TIMING(alloc_time);
 
 	/* convert the 4K blocks into the actual blocks the inode is using */
 	blk_shift = data_bits - sb->s_blocksize_bits;
@@ -1018,7 +1018,7 @@ void pmfs_evict_inode(struct inode *inode)
 	unsigned long last_blocknr;
 	unsigned int height, btype;
 	int err = 0;
-	timing_t evict_time;
+	INIT_TIMING(evict_time);
 
 	PMFS_START_TIMING(evict_inode_t, evict_time);
 	if (!inode->i_nlink && !is_bad_inode(inode)) {

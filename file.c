@@ -193,7 +193,7 @@ int pmfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	struct address_space *mapping = file->f_mapping;
 	struct inode *inode = mapping->host;
 	loff_t isize;
-	timing_t fsync_time;
+	INIT_TIMING(fsync_time);
 
 	PMFS_START_TIMING(fsync_t, fsync_time);
 	/* if the file is not mmap'ed, there is no need to do clflushes */
