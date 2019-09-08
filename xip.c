@@ -664,6 +664,10 @@ void debug_page_fault_done(struct vm_fault *vmf) {
   pte_t *pte = NULL;
   pud_t *pud = NULL;
   unsigned long address = vmf->address;
+	struct page *page;
+	struct address_space *mapping;
+	static void (*prmap_walk)(struct page *, struct rmap_walk_control *);
+	static struct rmap_walk_control wc = {.rmap_one = print_page_vaddr_one};
 
   wpmfs_dbg_rmap("before rmap: usr vaddr faulted = 0x%lx\n", address);
   pgd = pgd_offset(vmf->vma->vm_mm, address);
@@ -672,30 +676,27 @@ void debug_page_fault_done(struct vm_fault *vmf) {
   if (pud) pmd = pmd_offset(pud, address);
   if (pmd) pte = pte_offset_map(pmd, address);
 
-  if (pte) {
-    struct page *page = pte_page(*pte);
-    struct address_space *mapping;
-    static void (*prmap_walk)(struct page *, struct rmap_walk_control *);
-    static struct rmap_walk_control wc = {.rmap_one = print_page_vaddr_one};
+  if (!pte) {
+		wpmfs_error("missing pte\n");
+		return;
+	}
 
-    mapping = page_mapping(page);
+	page = pte_page(*pte);
+	mapping = page_mapping(page);
+	if (!mapping) {
+		wpmfs_error("missing rmap\n");
+		return;
+	}
 
-    if (!mapping) {
-      printk(KERN_ERR "missing rmap.\n");
-      return;
-    }
+	if (!prmap_walk) {
+		prmap_walk = (void *)kallsyms_lookup_name("rmap_walk");
+		if (!prmap_walk) {
+			wpmfs_error("cannot find symbol rmap_walk\n");
+			return;
+		}
+	}
 
-    if (!prmap_walk) {
-      prmap_walk = (void *)kallsyms_lookup_name("rmap_walk");
-      if (!prmap_walk) {
-        printk(KERN_ERR "cannot find symbol rmap_walk.\n");
-        return;
-      }
-    }
-    (*prmap_walk)(page, &wc);
-  } else {
-    printk(KERN_ERR "missing pte\n");
-  }
+	(*prmap_walk)(page, &wc);
 }
 
 static vm_fault_t pmfs_xip_file_huge_fault(struct vm_fault *vmf,
@@ -720,7 +721,8 @@ static vm_fault_t pmfs_xip_file_huge_fault(struct vm_fault *vmf,
 
   PMFS_END_TIMING(mmap_fault_t, fault_time);
 
-  debug_page_fault_done(vmf);
+  if(pmfs_dbgmask & WPMFS_DBGMASK_INT)
+		debug_page_fault_done(vmf);
   return ret;
 }
 

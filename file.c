@@ -58,7 +58,7 @@ int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
 	/* defaulting to 4K */
 	block_type = PMFS_BLOCK_TYPE_4K;
 
-#ifdef WPMFS
+#ifndef WPMFS
 hint_set:
 #endif
 	pmfs_dbg_verbose(
