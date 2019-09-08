@@ -559,10 +559,10 @@ int pmfs_xip_get_blocks(struct inode *inode, sector_t iblock, sector_t *block,
   rc = __pmfs_get_block(inode, iblock, create, block);
   if (rc) {
     pmfs_dbg(
-        "[%s:%d] rc(%d), sb->physaddr(0x%llx), iblock(0x%llx),"
+        "[%s:%d] rc(%d), sb->physaddr(0x%llx), iblock(0x%lx),"
         " create(0x%x), block(0x%lx)\n",
         __func__, __LINE__, rc, PMFS_SB(inode->i_sb)->phys_addr, iblock, create,
-        block);
+        *block);
     return rc;
   }
 
@@ -602,7 +602,7 @@ int pmfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
   iomap->length = 1 << blkbits;
   iomap->flags |= IOMAP_F_SHARED;
 
-  pmfs_dbg_rmap("before rmap: pfn allocated when fault = 0x%lx\n",
+  wpmfs_dbg_rmap("before rmap: pfn allocated when fault = 0x%lx\n",
                 pmfs_get_pfn(inode->i_sb, block_dev));
 
   if (new) iomap->flags |= IOMAP_F_NEW;
@@ -641,17 +641,17 @@ static bool print_page_vaddr_one(struct page *page, struct vm_area_struct *vma,
     ppage_vma_mapped_walk =
         (void *)kallsyms_lookup_name("page_vma_mapped_walk");
     if (!ppage_vma_mapped_walk) {
-      pmfs_dbg_rmap("rmap: cannot find symbol page_vma_mapped_walk.\n");
+      wpmfs_dbg_rmap("rmap: cannot find symbol page_vma_mapped_walk.\n");
       return false;
     }
   }
 
   while ((*ppage_vma_mapped_walk)(&pvmw)) {
     addr = pvmw.address;
-    pmfs_dbg_rmap("rmap walk: usr vaddr = 0x%lx\n", addr);
+    wpmfs_dbg_rmap("rmap walk: usr vaddr = 0x%lx\n", addr);
     if (pvmw.pte) {
       unsigned long pfn = pte_pfn(*pvmw.pte);
-      pmfs_dbg_rmap("rmap walk: pfn = 0x%lx\n", pfn);
+      wpmfs_dbg_rmap("rmap walk: pfn = 0x%lx\n", pfn);
     }
   }
   return true;
@@ -665,7 +665,7 @@ void debug_page_fault_done(struct vm_fault *vmf) {
   pud_t *pud = NULL;
   unsigned long address = vmf->address;
 
-  pmfs_dbg_rmap("before rmap: usr vaddr faulted = 0x%lx\n", address);
+  wpmfs_dbg_rmap("before rmap: usr vaddr faulted = 0x%lx\n", address);
   pgd = pgd_offset(vmf->vma->vm_mm, address);
   if (pgd) p4d = p4d_offset(pgd, address);
   if (p4d) pud = pud_offset(p4d, address);

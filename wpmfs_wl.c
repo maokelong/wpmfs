@@ -104,17 +104,16 @@ static void _wear_lerveling(unsigned long pfn) {
 
 static void _int_bottom(struct work_struct *work) {
   unsigned long pfn;
-  wpmfs_debug("we've reached the bottom half!");
   if (!_fetch_int_requests(&pfn)) return;
+  wpmfs_dbg_int("Bottom half is now processing pfn = %lu\n", pfn);
   _wear_lerveling(pfn);
-  wpmfs_debug("and goes on! Dealing pfn = %lu\n", pfn);
 }
 
 void wpmfs_int_top(unsigned long pfn) {
   /* Check if filesytem has been established */
   if (!_int_ctrl.fs_ready) return;
   wpmfs_assert(_int_ctrl.workqueue);
-  wpmfs_debug("pfn = %lu, cnter = %llu", pfn, _wt_cnter_read(pfn));
+  wpmfs_dbg_int("pfn = %lu, cnter = %llu", pfn, _wt_cnter_read(pfn));
 
   /* Enqueue to the FIFO */
   if (kfifo_in_spinlocked(&_int_ctrl.fifo, &pfn, sizeof(pfn),

@@ -24,6 +24,7 @@
 #include <linux/version.h>
 #include <linux/pfn_t.h>
 #include <linux/mm.h>
+#include <linux/string.h>
 
 #include "pmfs_def.h"
 #include "journal.h"
@@ -47,19 +48,22 @@
 #endif
 
 /* 打印用宏 */
-#define prt_dbg(fmt, args...)                                                \
-  printk(KERN_DEBUG "wpmfs: %s @%s() #%d. " fmt, __FILE__, __func__, __LINE__, \
-         ##args)
-#define prt_err(fmt, args...)                                                \
-  printk(KERN_ERR "wpmfs: %s @%s() #%d. " fmt, __FILE__, __func__, __LINE__, \
-         ##args)
-#define prt_ast(x)                                                        \
-  do {                                                                    \
-    if (x) break;                                                         \
-    printk(KERN_ERR "wpmfs: %s @%s() #%d. Assertion failed.\n", __FILE__, \
-           __func__, __LINE__);                                           \
-    dump_stack();                                                         \
-    BUG();                                                                \
+#define __FILENAME__ \
+  (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+#define prt_dbg(fmt, args...)                                            \
+  printk(KERN_DEBUG "wpmfs: %s @%s() #%d. " fmt, __FILENAME__, __func__, \
+         __LINE__, ##args)
+#define prt_err(fmt, args...)                                          \
+  printk(KERN_ERR "wpmfs: %s @%s() #%d. " fmt, __FILENAME__, __func__, \
+         __LINE__, ##args)
+#define prt_ast(x)                                                            \
+  do {                                                                        \
+    if (x) break;                                                             \
+    printk(KERN_ERR "wpmfs: %s @%s() #%d. Assertion failed.\n", __FILENAME__, \
+           __func__, __LINE__);                                               \
+    dump_stack();                                                             \
+    BUG();                                                                    \
   } while (0);
 
 /* #define pmfs_dbg(s, args...)         pr_debug(s, ## args) */
@@ -80,7 +84,8 @@ extern unsigned int pmfs_dbgmask;
 #define PMFS_DBGMASK_MMAPVVERBOSE      (0x00000008)
 #define PMFS_DBGMASK_VERBOSE           (0x00000010)
 #define PMFS_DBGMASK_TRANSACTION       (0x00000020)
-#define PMFS_DBGMASK_RMAP              (0x00000040)
+#define WPMFS_DBGMASK_RMAP             (0x00000100)
+#define WPMFS_DBGMASK_INT              (0x00000200)
 
 #define pmfs_dbg_mmaphuge(s, args ...)		 \
 	((pmfs_dbgmask & PMFS_DBGMASK_MMAPHUGE) ? pmfs_dbg(s, args) : 0)
@@ -96,8 +101,10 @@ extern unsigned int pmfs_dbgmask;
 #define pmfs_dbg_trans(s, args ...)		 \
 	((pmfs_dbgmask & PMFS_DBGMASK_TRANSACTION) ? pmfs_dbg(s, ##args) : 0)
 
-#define pmfs_dbg_rmap(s, args ...)		 \
-	((pmfs_dbgmask & PMFS_DBGMASK_RMAP) ? pmfs_dbg(s, ##args) : 0)
+#define wpmfs_dbg_rmap(s, args ...)		 \
+	((pmfs_dbgmask & WPMFS_DBGMASK_RMAP) ? wpmfs_debug1(s, ##args) : 0)
+#define wpmfs_dbg_int(s, args ...)		 \
+	((pmfs_dbgmask & WPMFS_DBGMASK_INT) ? wpmfs_debug1(s, ##args) : 0)
 
 #define pmfs_set_bit                   __test_and_set_bit_le
 #define pmfs_clear_bit                 __test_and_clear_bit_le
