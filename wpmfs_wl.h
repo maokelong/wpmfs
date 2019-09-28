@@ -20,9 +20,7 @@ static inline wpmfs_vmap_t* wpmfs_get_vmap(struct super_block* sb, int level) {
   return (wpmfs_vmap_t*)sbi->virt_addr;
 }
 
-extern void* ir_pmfs_sbi;
-
-extern void fs_now_ready(void);
+extern void fs_now_ready(struct block_device *fs_bdev);
 extern int wpmfs_init(struct super_block* sb, u64 static_area_size);
 extern void wpmfs_exit(struct super_block* sb);
 

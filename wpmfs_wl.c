@@ -1,14 +1,19 @@
 #include "wpmfs_wl.h"
+#include <linux/kallsyms.h>
 #include <linux/kernel.h>
 #include <linux/kfifo.h>
+#include <linux/migrate.h>
 #include <linux/string.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
+#include <linux/xarray.h>
 #include "wpmfs_wt.h"
 
-enum AREA_OF_PFN { AREA_VMAP, AREA_APP, AREA_DIRECT, AREA_INVALID };
+enum PAGE_TYPE { TYPE_RMAP, TYPE_VMAP, TYPE_STRANDED };
 
-void *ir_pmfs_sbi;
+void *(*ppage_rmapping)(struct page *page);
+bool (*ppage_vma_mapped_walk)(struct page_vma_mapped_walk *);
+void (*prmap_walk)(struct page *, struct rmap_walk_control *);
 
 /**
  * struct int_ctrl - the interrupt controller
@@ -23,6 +28,7 @@ void *ir_pmfs_sbi;
  */
 struct int_ctrl {
   bool fs_ready;
+  struct block_device *fs_bdev;
 
   struct kfifo fifo;
   spinlock_t fifo_lock;
@@ -33,10 +39,19 @@ struct int_ctrl {
 
 struct int_ctrl _int_ctrl = {
     .fs_ready = false,
+    .fs_bdev = NULL,
     .workqueue = NULL,
 };
 
-void fs_now_ready(void) { _int_ctrl.fs_ready = true; }
+void fs_now_ready(struct block_device *fs_bdev) {
+  _int_ctrl.fs_ready = true;
+  _int_ctrl.fs_bdev = fs_bdev;
+}
+
+void fs_now_removed(void) {
+  _int_ctrl.fs_ready = false;
+  _int_ctrl.fs_bdev = NULL;
+}
 
 static bool _fetch_int_requests(unsigned long *ppfn) {
   // TODO: 这里使用最简单的请求调度算法，不对页迁移请求进行任何合并操作
@@ -44,56 +59,57 @@ static bool _fetch_int_requests(unsigned long *ppfn) {
                               &_int_ctrl.fifo_lock);
 }
 
+// 设置了 rmap 的页，即为映射到进程地址空间的页
+static inline bool _check_rmap(unsigned long pfn) {
+  struct page *page = pfn_to_page(pfn);
+  return (*ppage_rmapping)(page);
+}
+
 static bool _check_vmap(unsigned long pfn) {
   // TODO:
   return true;
 }
 
-static bool _check_app(unsigned long pfn) {
-  // TODO:
-  return true;
-}
-
-static bool _check_direct(unsigned long pfn) {
-  // TODO:
-  return true;
-}
-
-static enum AREA_OF_PFN area_of_pfn(unsigned long pfn) {
-  if (_check_vmap(pfn))
-    return AREA_VMAP;
-  else if (_check_app(pfn))
-    return AREA_APP;
-  else if (_check_direct(pfn))
-    return AREA_DIRECT;
+static enum PAGE_TYPE _page_type(unsigned long pfn) {
+  if (_check_rmap(pfn))
+    return TYPE_RMAP;
+  else if (_check_vmap(pfn))
+    return TYPE_VMAP;
   else
-    return AREA_INVALID;
+    return TYPE_STRANDED;
 }
 
-static void _level_area_vmap(unsigned long pfn) {
+static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
+  // struct page *page = pfn_to_page(pfn);
+  // struct address_space *mapping = page_mapping(page);
+
+  // TODO: 这里调用 migrate_pages()
+  // 使用更复杂的 migrate_pages 而非 migrate_page 的原因是：
+  // 只有前者会调用 address_space_operations 中注册的 migratepage。
+  // if (MIGRATEPAGE_SUCCESS != migrate_pages())
+  //   wpmfs_error("Fatal! Page migration (case rmap) failed.\n");
+}
+
+static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
+  // TODO
+}
+
+static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
   // TODO:
 }
 
-static void _level_area_app(unsigned long pfn) {
-  // TODO:
-}
-
-static void _level_area_direct(unsigned long pfn) {
-  // TODO:
-}
-
-static void _wear_lerveling(unsigned long pfn) {
-  switch (area_of_pfn(pfn)) {
-    case AREA_VMAP:
-      _level_area_vmap(pfn);
+static void _wear_lerveling(struct super_block *sb, unsigned long pfn) {
+  switch (_page_type(pfn)) {
+    case TYPE_RMAP:
+      _level_type_rmap(sb, pfn);
       break;
 
-    case AREA_APP:
-      _level_area_app(pfn);
+    case TYPE_VMAP:
+      _level_type_vmap(sb, pfn);
       break;
 
-    case AREA_DIRECT:
-      _level_area_direct(pfn);
+    case TYPE_STRANDED:
+      _level_type_stranded(sb, pfn);
       break;
 
     default:
@@ -104,9 +120,18 @@ static void _wear_lerveling(unsigned long pfn) {
 
 static void _int_bottom(struct work_struct *work) {
   unsigned long pfn;
+  struct super_block *sb;
   if (!_fetch_int_requests(&pfn)) return;
   wpmfs_dbg_int("Bottom half is now processing pfn = %lu\n", pfn);
-  _wear_lerveling(pfn);
+
+  sb = get_super(_int_ctrl.fs_bdev);
+  if (!sb) {
+    wpmfs_error("cannot get super block\n");
+    return;
+  }
+
+  _wear_lerveling(sb, pfn);
+  drop_super(sb);
 }
 
 void wpmfs_int_top(unsigned long pfn) {
@@ -205,9 +230,40 @@ out_nomem:
   return ret;
 }
 
+static void *_borrow_symbol(char *sym_name) {
+  void *tgt = (void *)kallsyms_lookup_name(sym_name);
+  if (!tgt) wpmfs_error("Symbol %s unfound\n", sym_name);
+  return tgt;
+}
+
+static bool _borrow_symbols(void) {
+  ppage_rmapping = _borrow_symbol("page_rmapping");
+  if (!ppage_rmapping) return false;
+
+  ppage_vma_mapped_walk = _borrow_symbol("page_vma_mapped_walk");
+  if (!ppage_vma_mapped_walk) return false;
+
+  prmap_walk = _borrow_symbol("rmap_walk");
+  if (!prmap_walk) return false;
+
+  return true;
+}
+
+static bool _check_congfigs(void) {
+#if !defined(CONFIG_MIGRATION)
+  wpmfs_error("Config %s undefined.\n", "CONFIG_MIGRATION");
+  return false;
+#endif
+
+  return true;
+}
+
 int wpmfs_init(struct super_block *sb, u64 static_area_size) {
   // TODO: to replace pmfs_init
   // TODO: when not to init a new fs instance
+  if (!_check_congfigs()) return -1;
+  if (!_borrow_symbols()) return -1;
+
   wpmfs_init_all_cnter();
   _init_int(sb);
   _init_mem(sb, static_area_size);

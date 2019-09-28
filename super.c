@@ -375,8 +375,6 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	if (!first_pmfs_super)
 		first_pmfs_super = sbi->virt_addr;
 #endif
-	if (!ir_pmfs_sbi)
-		ir_pmfs_sbi = sbi;
 
 	pmfs_dbg_verbose("pmfs: Default block size set to 4K\n");
 	blocksize = sbi->blocksize = PMFS_DEF_BLOCK_SIZE_4K;
@@ -427,12 +425,12 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	 * 为什么选择在这里初始化 WPMFS？
 	 * 是因为恰好在这里计算好了静态区域的大小。
 	 */
-	reserved_size = journal_data_start + sbi->jsize;
-	if(wpmfs_init(sb, reserved_size)) {
-		wpmfs_error("Init failed.\n");
-		return ERR_PTR(-ENOMEM);
-	}
-	reserved_size += sbi->vmi.map_size;
+		reserved_size = journal_data_start + sbi->jsize;
+		if (wpmfs_init(sb, reserved_size)) {
+			wpmfs_error("Init failed.\n");
+			return ERR_PTR(-EPERM);
+		}
+        reserved_size += sbi->vmi.map_size;
 
 	super = pmfs_get_super(sb);
 	pmfs_memunlock_range(sb, super, journal_data_start);
@@ -751,8 +749,6 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (!first_pmfs_super)
 		first_pmfs_super = sbi->virt_addr;
 #endif
-	if (!ir_pmfs_sbi)
-		ir_pmfs_sbi = sbi;
 
 	/* Set it all up.. */
 setup_sb:
@@ -798,7 +794,7 @@ setup_sb:
 	}
 
 	clear_opt(sbi->s_mount_opt, MOUNTING);
-	fs_now_ready();
+	fs_now_ready(sbi->s_bdev);
 	retval = 0;
 	return retval;
 out:
@@ -939,8 +935,6 @@ static void pmfs_put_super(struct super_block *sb)
 
 	/* 清理 wpmfs 申请的资源 */
 	wpmfs_exit(sb);
-	if (ir_pmfs_sbi == sbi)
-		ir_pmfs_sbi = NULL;
 
 	sb->s_fs_info = NULL;
 	pmfs_dbgmask = 0;

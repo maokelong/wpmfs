@@ -22,6 +22,7 @@
 #include <linux/backing-dev.h>
 #include <linux/types.h>
 #include <linux/ratelimit.h>
+#include <linux/iomap.h>
 #include "pmfs.h"
 #include "xip.h"
 
@@ -1432,6 +1433,8 @@ void pmfs_setsize(struct inode *inode, loff_t newsize)
 		return;
 	}
 
+	inode_dio_wait(inode);
+
 	if (newsize != oldsize) {
 		pmfs_block_truncate_page(inode, newsize);
 		i_size_write(inode, newsize);
@@ -1440,6 +1443,7 @@ void pmfs_setsize(struct inode *inode, loff_t newsize)
 	 * before truncating it. Also we need to munmap the truncated range
 	 * from application address space, if mmapped. */
 	/* synchronize_rcu(); */
+	truncate_pagecache(inode, newsize);
 	__pmfs_truncate_blocks(inode, newsize, oldsize);
 	/* No need to make the b-tree persistent here if we are called from
 	 * within a transaction, because the transaction will provide a
@@ -1654,7 +1658,14 @@ err:
 	return ret;
 }
 
+int wpmfs_migrate_page(struct address_space *mapping, struct page *newpage,
+                       struct page *page, enum migrate_mode mode) {
+	//TODO: 在 VM 页迁移之前，更新元数据，并在 inode 中统计写次数
+  return iomap_migrate_page(mapping, newpage, page, mode);
+}
+
 const struct address_space_operations pmfs_aops_xip = {
-	.direct_IO		= pmfs_direct_IO,
-	/*.xip_mem_protect	= pmfs_xip_mem_protect,*/
-};
+    .direct_IO = pmfs_direct_IO,
+    .set_page_dirty = noop_set_page_dirty,
+    .invalidatepage = noop_invalidatepage,
+    .migratepage = wpmfs_migrate_page};

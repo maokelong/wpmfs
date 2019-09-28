@@ -19,7 +19,6 @@
 #include <linux/iomap.h>
 #include <linux/dax.h>
 #include <linux/rmap.h>
-#include <linux/kallsyms.h>
 #include "pmfs.h"
 #include "xip.h"
 
@@ -137,12 +136,16 @@ xip_file_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
 ssize_t pmfs_xip_file_read(struct file *filp, char __user *buf,
 			    size_t len, loff_t *ppos)
 {
+	struct inode *inode = filp->f_mapping->host;
 	ssize_t res;
 	INIT_TIMING(xip_read_time);
 
 	PMFS_START_TIMING(xip_read_t, xip_read_time);
+
 //	rcu_read_lock();
+	inode_lock_shared(inode);
 	res = xip_file_read(filp, buf, len, ppos);
+	inode_unlock_shared(inode);
 //	rcu_read_unlock();
 	PMFS_END_TIMING(xip_read_t, xip_read_time);
 	return res;
@@ -602,7 +605,7 @@ int pmfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
   iomap->length = 1 << blkbits;
   iomap->flags |= IOMAP_F_SHARED;
 
-  wpmfs_dbg_rmap("before rmap: pfn allocated when fault = 0x%lx\n",
+  wpmfs_dbg_int("before rmap: pfn allocated when fault = 0x%lx\n",
                 pmfs_get_pfn(inode->i_sb, block_dev));
 
   if (new) iomap->flags |= IOMAP_F_NEW;
@@ -630,28 +633,18 @@ static struct iomap_ops pmfs_iomap_ops_lock = {
 
 static bool print_page_vaddr_one(struct page *page, struct vm_area_struct *vma,
                                  unsigned long addr, void *arg) {
-  static bool (*ppage_vma_mapped_walk)(struct page_vma_mapped_walk *);
   struct page_vma_mapped_walk pvmw = {
       .page = page,
       .vma = vma,
       .address = addr,
   };
 
-  if (!ppage_vma_mapped_walk) {
-    ppage_vma_mapped_walk =
-        (void *)kallsyms_lookup_name("page_vma_mapped_walk");
-    if (!ppage_vma_mapped_walk) {
-      wpmfs_dbg_rmap("rmap: cannot find symbol page_vma_mapped_walk.\n");
-      return false;
-    }
-  }
-
   while ((*ppage_vma_mapped_walk)(&pvmw)) {
     addr = pvmw.address;
-    wpmfs_dbg_rmap("rmap walk: usr vaddr = 0x%lx\n", addr);
+    wpmfs_dbg_int("rmap walk: usr vaddr = 0x%lx\n", addr);
     if (pvmw.pte) {
       unsigned long pfn = pte_pfn(*pvmw.pte);
-      wpmfs_dbg_rmap("rmap walk: pfn = 0x%lx\n", pfn);
+      wpmfs_dbg_int("rmap walk: pfn = 0x%lx\n", pfn);
     }
   }
   return true;
@@ -666,10 +659,9 @@ void debug_page_fault_done(struct vm_fault *vmf) {
   unsigned long address = vmf->address;
 	struct page *page;
 	struct address_space *mapping;
-	static void (*prmap_walk)(struct page *, struct rmap_walk_control *);
 	static struct rmap_walk_control wc = {.rmap_one = print_page_vaddr_one};
 
-  wpmfs_dbg_rmap("before rmap: usr vaddr faulted = 0x%lx\n", address);
+  wpmfs_dbg_int("before rmap: usr vaddr faulted = 0x%lx\n", address);
   pgd = pgd_offset(vmf->vma->vm_mm, address);
   if (pgd) p4d = p4d_offset(pgd, address);
   if (p4d) pud = pud_offset(p4d, address);
@@ -688,15 +680,10 @@ void debug_page_fault_done(struct vm_fault *vmf) {
 		return;
 	}
 
-	if (!prmap_walk) {
-		prmap_walk = (void *)kallsyms_lookup_name("rmap_walk");
-		if (!prmap_walk) {
-			wpmfs_error("cannot find symbol rmap_walk\n");
-			return;
-		}
-	}
-
 	(*prmap_walk)(page, &wc);
+	wpmfs_dbg_int("rmap walk: index = %lu\n", page->index);
+	wpmfs_dbg_int("rmap walk: pgoff = %lu\n", vmf->pgoff);
+
 }
 
 static vm_fault_t pmfs_xip_file_huge_fault(struct vm_fault *vmf,

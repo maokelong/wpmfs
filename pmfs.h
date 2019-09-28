@@ -24,6 +24,7 @@
 #include <linux/version.h>
 #include <linux/pfn_t.h>
 #include <linux/mm.h>
+#include <linux/rmap.h>
 #include <linux/string.h>
 
 #include "pmfs_def.h"
@@ -84,8 +85,10 @@ extern unsigned int pmfs_dbgmask;
 #define PMFS_DBGMASK_MMAPVVERBOSE      (0x00000008)
 #define PMFS_DBGMASK_VERBOSE           (0x00000010)
 #define PMFS_DBGMASK_TRANSACTION       (0x00000020)
-#define WPMFS_DBGMASK_RMAP             (0x00000100)
-#define WPMFS_DBGMASK_INT              (0x00000200)
+#define WPMFS_DBGMASK_INT              (0x00000100)
+#define WPMFS_DBGMASK_WL_RMAP          (0x00000200)
+#define WPMFS_DBGMASK_WL_VMAP          (0x00000400)
+#define WPMFS_DBGMASK_WL_STRANDED      (0x00000800)
 
 #define pmfs_dbg_mmaphuge(s, args ...)		 \
 	((pmfs_dbgmask & PMFS_DBGMASK_MMAPHUGE) ? pmfs_dbg(s, args) : 0)
@@ -101,10 +104,14 @@ extern unsigned int pmfs_dbgmask;
 #define pmfs_dbg_trans(s, args ...)		 \
 	((pmfs_dbgmask & PMFS_DBGMASK_TRANSACTION) ? pmfs_dbg(s, ##args) : 0)
 
-#define wpmfs_dbg_rmap(s, args ...)		 \
-	((pmfs_dbgmask & WPMFS_DBGMASK_RMAP) ? wpmfs_debug1(s, ##args) : 0)
 #define wpmfs_dbg_int(s, args ...)		 \
 	((pmfs_dbgmask & WPMFS_DBGMASK_INT) ? wpmfs_debug1(s, ##args) : 0)
+#define wpmfs_dbg_wl_rmap(s, args ...)		 \
+	((pmfs_dbgmask & WPMFS_DBGMASK_WL_RMAP) ? wpmfs_debug1(s, ##args) : 0)
+#define wpmfs_dbg_wl_vmap(s, args ...)		 \
+	((pmfs_dbgmask & WPMFS_DBGMASK_WL_VMAP) ? wpmfs_debug1(s, ##args) : 0)
+#define wpmfs_dbg_wl_stranded(s, args ...)		 \
+	((pmfs_dbgmask & WPMFS_DBGMASK_WL_STRANDED) ? wpmfs_debug1(s, ##args) : 0)
 
 #define pmfs_set_bit                   __test_and_set_bit_le
 #define pmfs_clear_bit                 __test_and_clear_bit_le
@@ -745,5 +752,10 @@ int pmfs_search_dirblock(u8 *blk_base, struct inode *dir, struct qstr *child,
 #define	PMFS_CLEAR_STATS	0xBCD00011
 void pmfs_print_timing_stats(void);
 void pmfs_clear_stats(void);
+
+/* ================== Borrowed Symbols ==================== */
+extern void *(*ppage_rmapping)(struct page *page);
+extern bool (*ppage_vma_mapped_walk)(struct page_vma_mapped_walk *);
+extern void (*prmap_walk)(struct page *, struct rmap_walk_control *);
 
 #endif /* __PMFS_H */

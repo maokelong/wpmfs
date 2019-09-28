@@ -40,7 +40,7 @@ void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet) {
 
   /* 更新页追踪计数器 */
   wt_cnter_add_int_pfn(pfn, packet.cnt);
-  wpmfs_debug("cnter for %llu now reads %llu", packet.pageoff,
+  wpmfs_dbg_int("cnter for %llu now reads %llu", packet.pageoff,
               _wt_cnter_read(pfn));
   error = 0;
 
