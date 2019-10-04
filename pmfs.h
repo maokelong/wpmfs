@@ -260,6 +260,8 @@ extern unsigned long pmfs_find_region(struct inode *inode, loff_t *offset,
 		int hole);
 extern void pmfs_truncate_del(struct inode *inode);
 extern void pmfs_truncate_add(struct inode *inode, u64 truncate_size);
+extern void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
+                                         unsigned long blocknr);
 
 /* ioctl.c */
 extern long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);

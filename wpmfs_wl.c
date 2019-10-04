@@ -7,6 +7,7 @@
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
+#include "pmfs.h"
 #include "wpmfs_wt.h"
 
 enum PAGE_TYPE { TYPE_RMAP, TYPE_VMAP, TYPE_STRANDED };
@@ -79,15 +80,80 @@ static enum PAGE_TYPE _page_type(unsigned long pfn) {
     return TYPE_STRANDED;
 }
 
-static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
-  // struct page *page = pfn_to_page(pfn);
-  // struct address_space *mapping = page_mapping(page);
+static int _level_type_rmap_core(struct page *page, struct page *newpage,
+                                 unsigned long blocknr) {
+  struct address_space *mapping = page_mapping(page);
+  struct inode *inode = mapping->host;
+  pgoff_t pgoff = page->index;
+  int expected_count = 1;
 
-  // TODO: 这里调用 migrate_pages()
-  // 使用更复杂的 migrate_pages 而非 migrate_page 的原因是：
-  // 只有前者会调用 address_space_operations 中注册的 migratepage。
-  // if (MIGRATEPAGE_SUCCESS != migrate_pages())
-  //   wpmfs_error("Fatal! Page migration (case rmap) failed.\n");
+  void **pslot;
+  void *entry;
+
+  xa_lock_irq(&mapping->i_pages);
+  pslot = radix_tree_lookup_slot(&mapping->i_pages, page_index(page));
+
+  // page  = ffffdd928 4010200
+  // entry = 000000000 4010202
+
+  entry = radix_tree_deref_slot_protected(pslot, &mapping->i_pages.xa_lock);
+
+  if (expected_count != 1 || radix_tree_exceptional_entry(entry)) {
+    wpmfs_dbg_wl_rmap("entry = %px.\n", entry);
+    wpmfs_dbg_wl_rmap("page = %px.\n", page);
+    xa_unlock_irq(&mapping->i_pages);
+    return -EAGAIN;
+  }
+
+  if (!page_ref_freeze(page, expected_count)) {
+    xa_unlock_irq(&mapping->i_pages);
+    return -EAGAIN;
+  }
+
+  wpmfs_replace_single_datablk(inode, pgoff, blocknr);
+
+  newpage->lru = page->lru;
+  newpage->index = page->index;
+  newpage->mapping = page->mapping;
+
+  radix_tree_replace_slot(&mapping->i_pages, pslot, newpage);
+  wpmfs_assert(!PageTransHuge(page));
+  xa_unlock(&mapping->i_pages);
+
+  local_irq_enable();
+  return MIGRATEPAGE_SUCCESS;
+}
+
+static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
+  unsigned long blocknr;
+  u64 blockoff;
+  struct page *page = pfn_to_page(pfn);
+  struct page *newpage = NULL;
+  struct inode *inode = page->mapping->host;
+  int errval;
+
+  errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+  if (errval == -ENOMEM) {
+    wpmfs_error("Migration(Case Rmap) failed. Memory exhausted.\n");
+    return;
+  }
+
+  blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+  newpage = pfn_to_page(pmfs_get_pfn(sb, blockoff));
+
+  inode_lock(inode);
+  errval = _level_type_rmap_core(page, newpage, blocknr);
+  if (errval == -EAGAIN) {
+    wpmfs_error("Migration(Case Rmap) failed. Contention dectected.\n");
+    inode_unlock(inode);
+
+    wpmfs_dbg_wl_rmap("blockvaddr = %px.\n", pmfs_get_block(sb, blocknr));
+    pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+    return;
+  }
+
+  inode_unlock(inode);
+  wpmfs_error("Migration(Case Rmap) succeed.\n");
 }
 
 static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {

@@ -19,6 +19,7 @@
 #include <linux/iomap.h>
 #include <linux/dax.h>
 #include <linux/rmap.h>
+#include <linux/migrate.h>
 #include "pmfs.h"
 #include "xip.h"
 
@@ -631,13 +632,25 @@ static struct iomap_ops pmfs_iomap_ops_lock = {
     .iomap_end = pmfs_iomap_end,
 };
 
-static bool print_page_vaddr_one(struct page *page, struct vm_area_struct *vma,
+void print_struct_page(struct page *page) {
+  wpmfs_dbg_int("struct page: count = %d\n", page_count(page));
+
+  wpmfs_dbg_int("struct page: lru.next = 0x%px\n", page->lru.next);
+  wpmfs_dbg_int("struct page: lru.prev = 0x%px\n", page->lru.prev);
+  wpmfs_dbg_int("struct page: mapping = 0x%px\n", page_mapping(page));
+  wpmfs_dbg_int("struct page: index = 0x%lx\n", page->index);
+  wpmfs_dbg_int("struct page: private = 0x%lx\n", page->private);
+}
+
+static bool rmap_visit_each_page(struct page *page, struct vm_area_struct *vma,
                                  unsigned long addr, void *arg) {
   struct page_vma_mapped_walk pvmw = {
       .page = page,
       .vma = vma,
       .address = addr,
   };
+
+  print_struct_page(page);
 
   while ((*ppage_vma_mapped_walk)(&pvmw)) {
     addr = pvmw.address;
@@ -657,9 +670,8 @@ void debug_page_fault_done(struct vm_fault *vmf) {
   pte_t *pte = NULL;
   pud_t *pud = NULL;
   unsigned long address = vmf->address;
-	struct page *page;
-	struct address_space *mapping;
-	static struct rmap_walk_control wc = {.rmap_one = print_page_vaddr_one};
+  struct page *page;
+  static struct rmap_walk_control wc = {.rmap_one = rmap_visit_each_page};
 
   wpmfs_dbg_int("before rmap: usr vaddr faulted = 0x%lx\n", address);
   pgd = pgd_offset(vmf->vma->vm_mm, address);
@@ -669,21 +681,12 @@ void debug_page_fault_done(struct vm_fault *vmf) {
   if (pmd) pte = pte_offset_map(pmd, address);
 
   if (!pte) {
-		wpmfs_error("missing pte\n");
-		return;
-	}
+    wpmfs_error("missing pte\n");
+    return;
+  }
 
-	page = pte_page(*pte);
-	mapping = page_mapping(page);
-	if (!mapping) {
-		wpmfs_error("missing rmap\n");
-		return;
-	}
-
-	(*prmap_walk)(page, &wc);
-	wpmfs_dbg_int("rmap walk: index = %lu\n", page->index);
-	wpmfs_dbg_int("rmap walk: pgoff = %lu\n", vmf->pgoff);
-
+  page = pte_page(*pte);
+  (*prmap_walk)(page, &wc);
 }
 
 static vm_fault_t pmfs_xip_file_huge_fault(struct vm_fault *vmf,

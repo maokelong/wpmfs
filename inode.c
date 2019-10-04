@@ -22,7 +22,6 @@
 #include <linux/backing-dev.h>
 #include <linux/types.h>
 #include <linux/ratelimit.h>
-#include <linux/iomap.h>
 #include "pmfs.h"
 #include "xip.h"
 
@@ -1605,6 +1604,12 @@ void pmfs_get_inode_flags(struct inode *inode, struct pmfs_inode *pi)
 	PM_EQU(pi->i_flags, cpu_to_le32(pmfs_flags));
 }
 
+void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
+                                  unsigned long blocknr) {
+  // TODO: 在 B-Tree 里仅更新一个数据块索引
+  wpmfs_dbg_wl_rmap("Pretend to be finished here.\n");
+}
+
 static ssize_t pmfs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 {
 	struct file *filp = iocb->ki_filp;
@@ -1658,14 +1663,8 @@ err:
 	return ret;
 }
 
-int wpmfs_migrate_page(struct address_space *mapping, struct page *newpage,
-                       struct page *page, enum migrate_mode mode) {
-	//TODO: 在 VM 页迁移之前，更新元数据，并在 inode 中统计写次数
-  return iomap_migrate_page(mapping, newpage, page, mode);
-}
-
 const struct address_space_operations pmfs_aops_xip = {
     .direct_IO = pmfs_direct_IO,
     .set_page_dirty = noop_set_page_dirty,
     .invalidatepage = noop_invalidatepage,
-    .migratepage = wpmfs_migrate_page};
+};

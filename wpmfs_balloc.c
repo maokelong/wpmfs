@@ -4,15 +4,15 @@
 
 void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  int num_bins, cur_bin;
+  int cur_bin;
   unsigned long num_used_block;
 
   /* allocate page bins, the last bin helds worn out pages */
-  num_bins = get_cell_idea_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
+  sbi->num_bins = get_cell_idea_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
   sbi->block_bins = (struct list_head *)kmalloc_array(
-      num_bins, sizeof(struct list_head), GFP_KERNEL);
+      sbi->num_bins, sizeof(struct list_head), GFP_KERNEL);
   wpmfs_assert(sbi->block_bins);
-  for (cur_bin = 0; cur_bin < num_bins; ++cur_bin) {
+  for (cur_bin = 0; cur_bin < sbi->num_bins; ++cur_bin) {
     INIT_LIST_HEAD(&sbi->block_bins[cur_bin]);
   }
 
@@ -50,7 +50,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
 }
 
 void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
-                     unsigned short btype) {
+                     unsigned short btype) {  
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
   mutex_lock(&sbi->s_lock);
