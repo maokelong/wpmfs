@@ -1,6 +1,7 @@
 #include <linux/bitops.h>
 #include <linux/fs.h>
 #include "pmfs.h"
+#include "wpmfs_wl.h"
 
 void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
@@ -33,6 +34,8 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   unsigned long num_blocks = 0;
   int target_bin;
   struct list_head *new_node;
+  u64 blockoff;
+  struct page *page;
 
   /* huge block is not supported */
   num_blocks = pmfs_get_numblocks(btype);
@@ -47,6 +50,10 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
 
   /* update statistic info */
   sbi->num_free_blocks += num_blocks;
+
+  blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+  page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
+  wpmfs_mark_page(page, WPMFS_PAGE_FREE);
 }
 
 void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
@@ -64,6 +71,9 @@ int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
   int cur_bin, num_bins = sbi->num_bins;
   int errval = 0;
   unsigned long num_blocks = 0, num_unused_blocks;
+  u64 blockoff;
+  struct page *page;
+
 
   /* huge block is not supported */
   num_blocks = pmfs_get_numblocks(btype);
@@ -95,7 +105,12 @@ new_suc:
     void *block = pmfs_get_block(sb, pmfs_get_block_off(sb, *blocknr, 0));
     memset_nt(block, 0, 0x1 << 12);
   }
+
   sbi->num_free_blocks--;
+
+  blockoff = pmfs_get_block_off(sb, *blocknr, PMFS_BLOCK_TYPE_4K);
+  page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
+  wpmfs_mark_page(page, WPMFS_PAGE_USING);
 
 new_fail:
   return errval;

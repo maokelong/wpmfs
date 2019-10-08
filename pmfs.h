@@ -462,10 +462,10 @@ static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
 	return offset ? ((void *)sbi->vmi.addr + offset) : NULL;
 }
 
-static inline u64 wpmfs_get_blocknr_by_addr(struct super_block *sb, void* addr)
+static inline u64 wpmfs_get_blocknr(struct super_block *sb, unsigned long pfn)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	return ((u64)addr - (u64)sbi->virt_addr) >> PAGE_SHIFT;
+	return ((pfn << PAGE_SHIFT) - sbi->phys_addr) >> PAGE_SHIFT;
 }
 
 /* uses CPU instructions to atomically write up to 8 bytes */

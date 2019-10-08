@@ -23,8 +23,8 @@ extern void wpmfs_int_top(unsigned long pfn);
 /* Whenever a page suffers 2^power writes, the memory controller will sigal a
  * inetrrupt, suggesting page migraition. */
 // TODO: 28
-#define INTERRUPT_THRESHOLD_POWER (11)
-#define CELL_ENDURANCE_POWER (11)
+#define INTERRUPT_THRESHOLD_POWER (13)
+#define CELL_ENDURANCE_POWER (13)
 
 extern size_t _int_thres_power;
 static inline uint64_t get_int_thres_size(void) {

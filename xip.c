@@ -642,6 +642,16 @@ void print_struct_page(struct page *page) {
   wpmfs_dbg_int("struct page: private = 0x%lx\n", page->private);
 }
 
+void print_page_cache_entry(struct page *page) {
+  void **pslot;
+  struct address_space *mapping = page_mapping(page);
+
+  xa_lock_irq(&mapping->i_pages);
+  pslot = radix_tree_lookup_slot(&mapping->i_pages, page_index(page));
+  wpmfs_dbg_int("slot = %px", *pslot);
+  xa_unlock_irq(&mapping->i_pages);
+}
+
 static bool rmap_visit_each_page(struct page *page, struct vm_area_struct *vma,
                                  unsigned long addr, void *arg) {
   struct page_vma_mapped_walk pvmw = {
@@ -651,6 +661,7 @@ static bool rmap_visit_each_page(struct page *page, struct vm_area_struct *vma,
   };
 
   print_struct_page(page);
+	print_page_cache_entry(page);
 
   while ((*ppage_vma_mapped_walk)(&pvmw)) {
     addr = pvmw.address;

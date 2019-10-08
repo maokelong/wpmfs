@@ -13,6 +13,14 @@ typedef struct wpmfs_vmap_entry {
   u64 entry;
 } wpmfs_vmap_entry_t;
 
+enum WPMFS_PAGE_STATE {
+  WPMFS_PAGE_FREE,
+  WPMFS_PAGE_USING,
+  WPMFS_PAGE_INVALID_STATE
+};
+extern void wpmfs_mark_page(struct page* page, enum WPMFS_PAGE_STATE op);
+extern enum WPMFS_PAGE_STATE wpmfs_check_page(struct page* page);
+
 static inline wpmfs_vmap_t* wpmfs_get_vmap(struct super_block* sb, int level) {
   // TODO: 当前仅实现了一级映射表
   struct pmfs_sb_info* sbi = PMFS_SB(sb);
@@ -20,7 +28,7 @@ static inline wpmfs_vmap_t* wpmfs_get_vmap(struct super_block* sb, int level) {
   return (wpmfs_vmap_t*)sbi->virt_addr;
 }
 
-extern void fs_now_ready(struct block_device *fs_bdev);
+extern void fs_now_ready(struct block_device* fs_bdev);
 extern int wpmfs_init(struct super_block* sb, u64 static_area_size);
 extern void wpmfs_exit(struct super_block* sb);
 
