@@ -273,6 +273,7 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
   inode_unlock_shared(inode);
   wpmfs_dbg_wl_rmap("Migration(Case Rmap) succeed. pgoff = %lu.\n",
                     new_page->index);
+  // TODO: 检查 inode，看是否需要对元数据进行迁移。
 }
 
 static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {

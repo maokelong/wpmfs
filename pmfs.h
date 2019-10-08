@@ -447,12 +447,12 @@ static inline struct pmfs_super_block *pmfs_get_redund_super(struct super_block 
 
 /* If this is part of a read-modify-write of the block,
  * pmfs_memunlock_block() before calling! */
-static inline void *pmfs_get_block(struct super_block *sb, u64 block)
+static inline void *pmfs_get_block(struct super_block *sb, u64 blockoff)
 {
 	// struct pmfs_super_block *ps = pmfs_get_super(sb);
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-	return block ? ((void *)sbi->virt_addr + block) : NULL;
+	return blockoff ? ((void *)sbi->virt_addr + blockoff) : NULL;
 }
 
 static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
@@ -559,6 +559,17 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 	PM_MOVNTI(dest, length, length - (length%4)); /* This macro does not perform movnti, only records */
 }
 
+static inline void memcpy_page(void *dst, void *src) {
+  if (dst == src) {
+    wpmfs_error("dst == src.\n");
+    return;
+  }
+
+  // TODO: 基于 sse2 提供的 movntdq 指令加速传输
+  PM_MEMCPY(dst, src, PAGE_SIZE);
+  pmfs_flush_buffer(dst, PAGE_SIZE, true);
+}
+
 static inline u64 __pmfs_find_data_block(struct super_block *sb,
 		struct pmfs_inode *pi, unsigned long blocknr)
 {
@@ -581,6 +592,31 @@ static inline u64 __pmfs_find_data_block(struct super_block *sb,
 		height--;
 	}
 	return bp;
+}
+
+static inline __le64 * __wpmfs_find_pdatablk(struct super_block *sb,
+		struct pmfs_inode *pi, unsigned long blocknr)
+{
+	__le64 *level_ptr, *ret = NULL;
+	u64 bp = 0;
+	u32 height, bit_shift;
+	unsigned int idx;
+
+	height = pi->height;
+	bp = le64_to_cpu(pi->root);
+
+	while (height > 0) {
+		level_ptr = pmfs_get_block(sb, bp);
+		bit_shift = (height - 1) * META_BLK_SHIFT;
+		idx = blocknr >> bit_shift;
+		bp = le64_to_cpu(level_ptr[idx]);
+		ret = &level_ptr[idx];
+		if (bp == 0)
+			return NULL;
+		blocknr = blocknr & ((1 << bit_shift) - 1);
+		height--;
+	}
+	return ret;
 }
 
 static inline unsigned int pmfs_inode_blk_shift (struct pmfs_inode *pi)

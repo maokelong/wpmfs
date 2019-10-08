@@ -1606,8 +1606,26 @@ void pmfs_get_inode_flags(struct inode *inode, struct pmfs_inode *pi)
 
 void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
                                   unsigned long blocknr) {
-  // TODO: 在 B-Tree 里仅更新一个数据块索引
-  wpmfs_dbg_wl_rmap("Pretend to be finished here.\n");
+  struct super_block *sb = inode->i_sb;
+  struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
+  __le64 *pdatablk = __wpmfs_find_pdatablk(sb, pi, pgoff);
+	u64 tmp_blockoff;
+  void *dst, *src;
+
+  if (unlikely(!pi) || unlikely(!pdatablk)) {
+    wpmfs_error("pmfs_inode or pdatablk is null.\n");
+    return;
+  }
+
+  // copy the page content
+  tmp_blockoff = le64_to_cpu(*pdatablk);
+  src = pmfs_get_block(sb, tmp_blockoff);
+  tmp_blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+  dst = pmfs_get_block(sb, tmp_blockoff);
+  memcpy_page(dst, src); 
+
+  // modify the tree index
+  *pdatablk = cpu_to_le64(tmp_blockoff);
 }
 
 static ssize_t pmfs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
