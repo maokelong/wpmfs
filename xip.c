@@ -228,7 +228,7 @@ __pmfs_xip_file_write(struct address_space *mapping, const char __user *buf,
 	 	 * (instead of movnti) to write. So flush those cachelines. */
 		pmfs_flush_edge_cachelines(pos, copied, xmem + offset);
 
-        	if (likely(copied > 0)) {
+    if (likely(copied > 0)) {
 			status = copied;
 
 			if (status >= 0) {
@@ -429,7 +429,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	if ((eblk_offset != 0) &&
 			(pmfs_find_data_block(inode, end_blk) == 0))
 		new_eblk = true;
-
+	
 	/* don't zero-out the allocated blocks */
 	pmfs_alloc_blocks(trans, inode, start_blk, num_blocks, false);
 
@@ -448,6 +448,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 out:
 	inode_unlock(inode);
 	sb_end_write(inode->i_sb);
+	wpmfs_file_updated(inode, false);
 	PMFS_END_TIMING(xip_write_t, xip_write_time);
 	return ret;
 }

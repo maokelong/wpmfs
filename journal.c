@@ -441,7 +441,7 @@ int pmfs_journal_soft_init(struct super_block *sb)
 	pmfs_journal_t *journal = pmfs_get_journal(sb);
 
 	sbi->next_transaction_id = 0;
-	sbi->journal_base_addr = pmfs_get_block(sb,le64_to_cpu(journal->base));
+	sbi->journal_base_addr = wpmfs_get_vblock(sb,le64_to_cpu(journal->base));
 	sbi->jsize = le32_to_cpu(journal->size);
 	mutex_init(&sbi->journal_mutex);
 	sbi->redo_log = !!le16_to_cpu(journal->redo_logging);
@@ -592,7 +592,7 @@ again:
 
 	pmfs_dbg_trans("new transaction tid %d nle %d avl sz %x sa %llx\n",
 		trans->transaction_id, max_log_entries, avail_size, base);
-	trans->start_addr = pmfs_get_block(sb, base);
+	trans->start_addr = wpmfs_get_vblock(sb, base);
 	trans->parent = (pmfs_transaction_t *)current->journal_info;
 	current->journal_info = trans;
 	PMFS_END_TIMING(new_trans_t, log_time);

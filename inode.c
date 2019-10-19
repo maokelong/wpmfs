@@ -22,7 +22,9 @@
 #include <linux/backing-dev.h>
 #include <linux/types.h>
 #include <linux/ratelimit.h>
+#include <asm/page.h>
 #include "pmfs.h"
+#include "wpmfs_wl.h"
 #include "xip.h"
 
 unsigned int blk_type_to_shift[PMFS_BLOCK_TYPE_MAX] = {12, 21, 30};
@@ -1604,6 +1606,7 @@ void pmfs_get_inode_flags(struct inode *inode, struct pmfs_inode *pi)
 	PM_EQU(pi->i_flags, cpu_to_le32(pmfs_flags));
 }
 
+// blocknr: block number of the newly allocated block
 void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
                                   unsigned long blocknr) {
   struct super_block *sb = inode->i_sb;
@@ -1626,6 +1629,81 @@ void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
 
   // modify the tree index
   *pdatablk = cpu_to_le64(tmp_blockoff);
+}
+
+static void wpmfs_replace_tired_page(struct super_block *sb, __le64 *blk_index) {
+  unsigned long blocknr;
+  int errval;
+  void *dst, *src;
+  u64 blockoff;
+	u64 tmp_blockoff;
+
+  errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+	  if (errval == -ENOMEM) {
+    wpmfs_error("Migration(Case Stranded) failed. Memory exhausted.\n");
+    return;
+  }
+
+	// allocate a new page
+  blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+
+  // copy the page content
+	tmp_blockoff = le64_to_cpu(*blk_index);
+  src = pmfs_get_block(sb, tmp_blockoff);
+  tmp_blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+  dst = pmfs_get_block(sb, tmp_blockoff);
+  memcpy_page(dst, src); 
+
+  // modify the tree index
+  *blk_index = cpu_to_le64(tmp_blockoff);
+}
+
+static void wpmfs_replace_tired_pages_recur(struct super_block *sb,
+                                            __le64 block, u32 height,
+                                            unsigned long first_blocknr,
+                                            unsigned long last_blocknr) {
+  unsigned int meta_bits = META_BLK_SHIFT;
+  __le64 *node;
+  unsigned long first_blk, last_blk, node_bits;
+  unsigned int first_index, last_index, i;
+
+  node_bits = (height - 1) * meta_bits;
+
+  first_index = first_blocknr >> node_bits;
+  last_index = last_blocknr >> node_bits;
+
+  node = pmfs_get_block(sb, le64_to_cpu(block));
+
+  for (i = first_index; height != 1 && i <= last_index; i++) {
+    unsigned long subblk_pfn = pmfs_get_pfn(sb, le64_to_cpu(node[i]));
+
+    if (wpmfs_page_marks(pfn_to_page(subblk_pfn)) & WPMFS_PAGE_TIRED)
+      wpmfs_replace_tired_page(sb, &node[i]);
+
+    first_blk =
+        (i == first_index) ? (first_blocknr & ((1 << node_bits) - 1)) : 0;
+
+    last_blk = (i == last_index) ? (last_blocknr & ((1 << node_bits) - 1))
+                                 : (1 << node_bits) - 1;
+
+    wpmfs_replace_tired_pages_recur(sb, node[i], height - 1, first_blk,
+                                    last_blk);
+  }
+}
+
+void wpmfs_file_updated(struct inode *inode, bool minor) {
+  struct super_block *sb = inode->i_sb;
+  struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
+
+	//TODO: remove me
+	return;
+
+  if (!wt_file_updated(&inode->i_private, minor)) return;
+
+  // TODO: dont place me in critical routine, do me asynly.
+  inode_lock_shared(inode);
+  wpmfs_replace_tired_pages_recur(sb, pi->root, pi->height, 0, pi->i_blocks);
+  inode_unlock_shared(inode);
 }
 
 static ssize_t pmfs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)

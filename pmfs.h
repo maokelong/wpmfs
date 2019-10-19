@@ -260,6 +260,7 @@ extern unsigned long pmfs_find_region(struct inode *inode, loff_t *offset,
 		int hole);
 extern void pmfs_truncate_del(struct inode *inode);
 extern void pmfs_truncate_add(struct inode *inode, u64 truncate_size);
+extern void wpmfs_file_updated(struct inode *inode, bool minor);
 extern void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
                                          unsigned long blocknr);
 
@@ -330,7 +331,7 @@ struct pmfs_inode_info {
  * WPMFS 映射内存相关信息
  */
 struct wpmfs_vm_info {
-	void *addr;
+	void *addr;	// to vmalloc space
 	unsigned long map_size;
 	//TODO: 根据需要扩展更多字段
 };
@@ -457,9 +458,10 @@ static inline void *pmfs_get_block(struct super_block *sb, u64 blockoff)
 
 static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
 {
-	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	PMFS_ASSERT(offset <= PMFS_SB_SIZE * 2 + sbi->jsize);
 
-	return offset ? ((void *)sbi->vmi.addr + offset) : NULL;
+  return offset ? ((void *)sbi->vmi.addr + offset) : NULL;
 }
 
 static inline u64 wpmfs_get_blocknr(struct super_block *sb, unsigned long pfn)
@@ -643,7 +645,7 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 		return NULL;
 
 	block = ino >> pmfs_inode_blk_shift(inode_table);
-	bp = __pmfs_find_data_block(sb, inode_table, block);
+  bp = __pmfs_find_data_block(sb, inode_table, block);
 
 	if (bp == 0)
 		return NULL;
@@ -654,8 +656,7 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 static inline u64
 pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
 {
-	PMFS_ASSERT((addr >= sbi->virt_addr) &&
-			(addr < (sbi->virt_addr + sbi->initsize)));
+	PMFS_ASSERT(!is_vmalloc_addr(addr));
 	return (u64)(addr - sbi->virt_addr);
 }
 
@@ -696,9 +697,9 @@ pmfs_get_blocknr(struct super_block *sb, u64 block, unsigned short btype)
 	return block >> PAGE_SHIFT;
 }
 
-static inline unsigned long pmfs_get_pfn(struct super_block *sb, u64 block)
+static inline unsigned long pmfs_get_pfn(struct super_block *sb, u64 blockoff)
 {
-	return (PMFS_SB(sb)->phys_addr + block) >> PAGE_SHIFT;
+	return (PMFS_SB(sb)->phys_addr + blockoff) >> PAGE_SHIFT;
 }
 
 static inline int pmfs_is_mounting(struct super_block *sb)

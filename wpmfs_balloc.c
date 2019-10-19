@@ -53,7 +53,8 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
 
   blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
-  wpmfs_mark_page(page, WPMFS_PAGE_FREE);
+
+  wpmfs_mark_page(page, wpmfs_page_marks(page), 0);
 }
 
 void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
@@ -110,7 +111,7 @@ new_suc:
 
   blockoff = pmfs_get_block_off(sb, *blocknr, PMFS_BLOCK_TYPE_4K);
   page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
-  wpmfs_mark_page(page, WPMFS_PAGE_USING);
+  wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
 
 new_fail:
   return errval;

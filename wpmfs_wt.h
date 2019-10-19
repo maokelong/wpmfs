@@ -20,6 +20,10 @@ extern void wpmfs_int_top(unsigned long pfn);
 
 #define wt_cnter_t atomic64_t
 
+/*************************************************
+ * page suffering threshold
+ *************************************************/
+
 /* Whenever a page suffers 2^power writes, the memory controller will sigal a
  * inetrrupt, suggesting page migraition. */
 // TODO: 28
@@ -38,6 +42,25 @@ extern void set_int_threshold(int power);
 static inline uint64_t get_cell_idea_endurance(void) {
   return 1 << CELL_ENDURANCE_POWER;
 }
+
+/*************************************************
+ * file suffering threshold
+ *************************************************/
+
+// TODO: choose suitable configs for me
+#define FILE_UPDATE_THRESHOLD_POWER (3)
+#define FILE_UPDATE_CNT_MAJOR (100)
+
+static inline uint64_t get_file_update_thes_val(void) {
+  return 1 << FILE_UPDATE_THRESHOLD_POWER;
+}
+static inline uint64_t get_file_update_thes_mask(void) {
+  return ~(get_file_update_thes_val() - 1);
+}
+
+/*************************************************
+ * per-page write-tracking counters (counter file)
+ *************************************************/
 
 /* Descriptor of wt counter file. */
 struct wt_cnter_file {
@@ -112,6 +135,28 @@ static inline void wt_cnter_add_int_addr(void* addr, uint64_t cnt) {
       _wt_cnter_add_int_addr((void*)addr_t, sub_cnt);
     }
   }
+}
+
+/*************************************************
+ * per-inode update-tracking counter (i_private)
+ *************************************************/
+
+// we dont need to initialize the `inode->i_private` since 
+// `inode_init_always` will do that for us
+
+// i_private: &inode->i_private, used as a cnter
+// minor: if only replace a single datablock
+// return true if a file has suffered too many updates
+static inline bool wt_file_updated(void** i_private, bool minor) {
+  wt_cnter_t* pcnter;
+  long res, cnt;
+
+  if (!i_private) return false;
+  pcnter = *(wt_cnter_t**)i_private;
+  cnt = minor ? 1 : FILE_UPDATE_CNT_MAJOR;
+  res = atomic_long_add_return(cnt, pcnter);
+  return (res & get_file_update_thes_val()) ^
+         ((res - cnt) & get_file_update_thes_mask());
 }
 
 #endif /* WPMFS_WT_H */

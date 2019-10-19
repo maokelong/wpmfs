@@ -1,4 +1,5 @@
 #include "wpmfs_wl.h"
+#include <linux/dax.h>
 #include <linux/kallsyms.h>
 #include <linux/kernel.h>
 #include <linux/kfifo.h>
@@ -65,27 +66,6 @@ void fs_now_removed(void) {
   _int_ctrl.fs_bdev = NULL;
 }
 
-void wpmfs_mark_page(struct page *page, enum WPMFS_PAGE_STATE op) {
-  switch (op) {
-    case WPMFS_PAGE_FREE:
-      page->private = 0;
-      break;
-
-    case WPMFS_PAGE_USING:
-      page->private = 1;
-      break;
-
-    default:
-      wpmfs_assert(0);
-  }
-}
-
-enum WPMFS_PAGE_STATE wpmfs_check_page(struct page *page) {
-  if (page->private == 0) return WPMFS_PAGE_FREE;
-  if (page->private == 1) return WPMFS_PAGE_USING;
-  return WPMFS_PAGE_INVALID_STATE;
-}
-
 static bool _fetch_int_requests(unsigned long *ppfn) {
   // 这里使用最简单的请求调度算法，不对页迁移请求进行任何合并操作
   return kfifo_out_spinlocked(&_int_ctrl.fifo, ppfn, sizeof(*ppfn),
@@ -95,12 +75,12 @@ static bool _fetch_int_requests(unsigned long *ppfn) {
 // 设置了 rmap 的页，即为映射到进程地址空间的页
 static inline bool _check_rmap(unsigned long pfn) {
   struct page *page = pfn_to_page(pfn);
-  return page_mapping(page) != NULL;
+  return page_mapping(page);
 }
 
 static bool _check_vmap(unsigned long pfn) {
   // TODO:
-  return true;
+  return false;
 }
 
 static enum PAGE_TYPE _page_type(unsigned long pfn) {
@@ -133,7 +113,6 @@ static inline void *lock_slot(struct address_space *mapping, void **slot) {
 
   entry |= RADIX_DAX_ENTRY_LOCK;
   radix_tree_replace_slot(&mapping->i_pages, slot, (void *)entry);
-
   return (void *)entry;
 }
 
@@ -151,7 +130,7 @@ static inline void *unlock_slot(struct address_space *mapping, void **slot) {
 }
 
 static void *trygrab_mapping_entry(struct address_space *mapping, pgoff_t index,
-                                   void __rcu ***pslot) {
+                                   void __rcu ***slotp) {
   void *entry;
   void __rcu **slot;
 
@@ -160,19 +139,17 @@ static void *trygrab_mapping_entry(struct address_space *mapping, pgoff_t index,
 
   if (unlikely(!slot) || slot_locked(mapping, slot)) {
     xa_unlock_irq(&mapping->i_pages);
+    wpmfs_dbg_wl_rmap("Failed to grab mapping entry.\n");
     return ERR_PTR(-EAGAIN);
   }
 
   entry = lock_slot(mapping, slot);
-  wpmfs_assert(entry && radix_tree_exceptional_entry(entry) &&
-               dax_is_pte_entry(entry));
-
   xa_unlock_irq(&mapping->i_pages);
-
-  if (pslot) *pslot = slot;
+  if (slotp) *slotp = slot;
   return entry;
 }
 
+// https://elixir.bootlin.com/linux/v4.19.49/source/fs/dax.c#L290
 static void put_locked_mapping_entry(struct address_space *mapping,
                                      pgoff_t index) {
   void *entry, **slot;
@@ -181,13 +158,7 @@ static void put_locked_mapping_entry(struct address_space *mapping,
   slot = radix_tree_lookup_slot(&mapping->i_pages, index);
   if (unlikely(!slot)) {
     xa_unlock_irq(&mapping->i_pages);
-    return;
-  }
-
-  entry = radix_tree_deref_slot_protected(slot, &mapping->i_pages.xa_lock);
-  if (unlikely(!radix_tree_exceptional_entry(entry)) ||
-      unlikely(!slot_locked(mapping, slot))) {
-    xa_unlock_irq(&mapping->i_pages);
+    wpmfs_dbg_wl_rmap("Failed to lock mapping entry.\n");
     return;
   }
   unlock_slot(mapping, slot);
@@ -200,6 +171,34 @@ static void *dax_radix_locked_entry(unsigned long pfn, unsigned long flags) {
                   (pfn << RADIX_DAX_SHIFT) | RADIX_DAX_ENTRY_LOCK);
 }
 
+static void *dax_radix_unlocked_entry(unsigned long pfn, unsigned long flags) {
+  return (void *)((RADIX_TREE_EXCEPTIONAL_ENTRY | flags |
+                   (pfn << RADIX_DAX_SHIFT)) &
+                  ~RADIX_DAX_ENTRY_LOCK);
+}
+
+static void replace_slot(struct address_space *mapping, pgoff_t index,
+                         void *unloked_new_entry) {
+  void __rcu **slot;
+  void *entry;
+
+  xa_lock_irq(&mapping->i_pages);
+  slot = radix_tree_lookup_slot(&mapping->i_pages, index);
+  entry = radix_tree_deref_slot_protected(slot, &mapping->i_pages.xa_lock);
+  if (!((unsigned long)entry & RADIX_DAX_ENTRY_LOCK)) {
+    wpmfs_error("Fatal! Slot being replaced is not locked.\n");
+  }
+  radix_tree_replace_slot(&mapping->i_pages, slot, unloked_new_entry);
+  xa_unlock_irq(&mapping->i_pages);
+  // export_symbol before using.
+  // https://elixir.bootlin.com/linux/v4.19.49/source/fs/dax.c#L165
+  extern void dax_wake_mapping_entry_waiter(struct address_space * mapping,
+                                            pgoff_t index, void *entry,
+                                            bool wake_all);
+  //  otherwise applications may sleep forever.
+  dax_wake_mapping_entry_waiter(mapping, index, entry, false);
+}
+
 static int _level_type_rmap_core(struct page *page, struct page *new_page,
                                  unsigned long blocknr) {
   struct address_space *mapping = page_mapping(page);
@@ -208,9 +207,13 @@ static int _level_type_rmap_core(struct page *page, struct page *new_page,
   unsigned long new_pfn = pfn_t_to_pfn(page_to_pfn_t(new_page));
   unsigned long flags;
   void *entry, *new_entry;
-  void **slot;
+  void __rcu **slot;
 
-  wpmfs_assert(!PageTransHuge(page));
+  if (PageTransHuge(page)) {
+    wpmfs_error("Huge page is not supported.\n");
+    return -EAGAIN;
+  }
+
   entry = trygrab_mapping_entry(mapping, pgoff, &slot);
   if (IS_ERR(entry)) return -EAGAIN;
 
@@ -218,17 +221,14 @@ static int _level_type_rmap_core(struct page *page, struct page *new_page,
   new_page->index = page->index;
   new_page->mapping = page->mapping;
   flags = (unsigned long)entry & ((1 << RADIX_DAX_SHIFT) - 1);
-  new_entry = dax_radix_locked_entry(new_pfn, flags);
+  new_entry = dax_radix_unlocked_entry(new_pfn, flags);
 
   unmap_mapping_range(mapping, pgoff << PAGE_SHIFT, PAGE_SIZE, false);
   page->mapping = NULL;
   page->index = 0;
 
   wpmfs_replace_single_datablk(inode, pgoff, blocknr);
-
-  radix_tree_replace_slot(&mapping->i_pages, slot, new_entry);
-
-  put_locked_mapping_entry(mapping, pgoff);
+  replace_slot(mapping, pgoff, new_entry);
 
   return MIGRATEPAGE_SUCCESS;
 }
@@ -238,17 +238,47 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
   u64 blockoff;
   struct page *page = pfn_to_page(pfn);
   struct page *new_page = NULL;
-  struct inode *inode = page->mapping->host;
+  struct address_space *mapping;
+  struct inode *inode;
   int errval;
 
-  if (!inode) {
-    wpmfs_error("Fatal. Inode is missing.\n");
+  // Since the mapping(truncate) may be cleared, and the inode(iput) may
+  // be dropped, we need to do something to ensure grab the both the mapping
+  // and inode.
+
+  // To serialize `evict_inode`, by the way, `destroy_inode`.
+  mutex_lock(&PMFS_SB(sb)->inode_table_mutex);
+
+  // Get a copy of mapping.
+  // Since mapping is just a pointer pointing to i_datas,
+  // we are always to access mapping unless the whole inode is freed,
+  // which is impossible due to the serialization of `destroy_inode`.
+  if (!(mapping = page_mapping(page))) {
+    mutex_unlock(&PMFS_SB(sb)->inode_table_mutex);
     return;
   }
+
+  inode = mapping->host;
+
+  // inode may be freeing,
+  // or the page has already been truncated before grabing the inode.
+  if (!(inode = igrab(inode))) {
+    mutex_unlock(&PMFS_SB(sb)->inode_table_mutex);
+    return;
+  }
+
+  if (!page_mapping(page)) {
+    iput(inode);
+    mutex_unlock(&PMFS_SB(sb)->inode_table_mutex);
+    return;
+  }
+
+  mutex_unlock(&PMFS_SB(sb)->inode_table_mutex);
 
   errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
   if (errval == -ENOMEM) {
     wpmfs_error("Migration(Case Rmap) failed. Memory exhausted.\n");
+    iput(inode);
     return;
   }
 
@@ -260,8 +290,9 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
 
   errval = _level_type_rmap_core(page, new_page, blocknr);
   if (errval == -EAGAIN) {
-    wpmfs_dbg_wl_rmap("Migration(Case Rmap) failed. pfn = %lu.\n", pfn);
+    wpmfs_dbg_wl_rmap("Migration(Case Rmap) failed. Contention occured.\n");
     inode_unlock_shared(inode);
+    iput(inode);
 
     pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
     return;
@@ -273,7 +304,9 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
   inode_unlock_shared(inode);
   wpmfs_dbg_wl_rmap("Migration(Case Rmap) succeed. pgoff = %lu.\n",
                     new_page->index);
-  // TODO: 检查 inode，看是否需要对元数据进行迁移。
+
+  wpmfs_file_updated(inode, true);
+  iput(inode);
 }
 
 static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
@@ -282,8 +315,12 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
 }
 
 static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
-  // TODO:
-  wpmfs_error("impossible routine currently.\n");
+  // just mark the page tired.
+  struct page *page = pfn_to_page(pfn);
+  unsigned long page_marks = wpmfs_page_marks(page);
+  if (!(page_marks & WPMFS_PAGE_USING)) return;
+
+  wpmfs_mark_page(page, page_marks, page_marks | WPMFS_PAGE_TIRED);
 }
 
 static void _wear_lerveling(struct super_block *sb, unsigned long pfn) {
@@ -321,7 +358,7 @@ static void _int_bottom(struct work_struct *work) {
     return;
   }
 
-  if (wpmfs_check_page(pfn_to_page(pfn)) == WPMFS_PAGE_USING)
+  if (wpmfs_page_marks(pfn_to_page(pfn)) & WPMFS_PAGE_USING)
     _wear_lerveling(sb, pfn);
 
   drop_super(sb);
@@ -453,12 +490,14 @@ static bool _check_congfigs(void) {
 int wpmfs_init(struct super_block *sb, u64 static_area_size) {
   // TODO: to replace pmfs_init
   // TODO: when not to init a new fs instance
+  int errno;
   if (!_check_congfigs()) return -1;
   if (!_borrow_symbols()) return -1;
 
   wpmfs_init_all_cnter();
-  _init_int(sb);
-  _init_mem(sb, static_area_size);
+  if ((errno = _init_int(sb)) != 0) return errno;
+  if ((errno = _init_mem(sb, static_area_size)) != 0) return errno;
+
   return 0;
 }
 
@@ -482,4 +521,47 @@ static void _exit_mem(struct super_block *sb) {
 void wpmfs_exit(struct super_block *sb) {
   _exit_int();
   _exit_mem(sb);
+}
+
+void wpmfs_print_memory_layout(struct super_block *sb,
+                               unsigned long reserved_size) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct pmfs_super_block *super = pmfs_get_super(sb);
+  struct pmfs_inode *inode_table = pmfs_get_inode_table(sb);
+  pmfs_journal_t *journal_meta = pmfs_get_journal(sb);
+  void *journal_data = sbi->journal_base_addr;
+  unsigned long num_reserved_block =
+      (reserved_size + sb->s_blocksize - 1) >> sb->s_blocksize_bits;
+  uint64_t datablk_off = pmfs_get_block_off(
+      sb, sbi->block_start + num_reserved_block, PMFS_BLOCK_TYPE_4K);
+  void *pdatablk = pmfs_get_block(sb, datablk_off);
+
+  wpmfs_assert(wpmfs_get_vblock(sb, journal_meta->base) == journal_data);
+  wpmfs_assert(cpu_to_le32(journal_meta->size) == sbi->jsize);
+
+  pmfs_info("The memory layout of wpmfs:\n");
+
+  pmfs_info("vmalloc space:\n");
+
+  wpmfs_assert(is_vmalloc_addr(super));
+  pmfs_info("Superblock - start at %px, len %lu.\n", super,
+            sizeof(struct pmfs_super_block));
+  wpmfs_assert(is_vmalloc_addr(inode_table));
+  pmfs_info("Inode table - start at %px, len %lu.\n", inode_table,
+            sizeof(struct pmfs_inode));
+  wpmfs_assert(is_vmalloc_addr(journal_meta));
+  pmfs_info("Journal meta - start at %px, len %lu.\n", journal_meta,
+            sizeof(pmfs_journal_t));
+  wpmfs_assert(is_vmalloc_addr(journal_data));
+  pmfs_info("Journal data - start at %px, len %d.\n", journal_data,
+            cpu_to_le32(journal_meta->size));
+  // TODO with vmap
+  pmfs_info("direct mapping: len reserverd %lu.\n", reserved_size);
+
+  pmfs_info("datablks - starts at %px.\n", pdatablk);
+  datablk_off =
+      pmfs_get_block_off(sb, sbi->unused_block_low, PMFS_BLOCK_TYPE_4K);
+  pdatablk = pmfs_get_block(sb, datablk_off);
+  pmfs_info("datablks - currently first free at %px, total free cnts %lu.\n",
+            pdatablk, sbi->num_free_blocks);
 }

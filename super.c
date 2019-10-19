@@ -415,22 +415,22 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 		journal_data_start, sbi->jsize, inode_table_start);
 	pmfs_dbg_verbose("max file name len %d\n", (unsigned int)PMFS_NAME_LEN);
 
-	/* 
-	 * 在开始初始化 PMFS 之前，首先将静态区域全部映射到 vmalloc space。
-	 * 但由于现在是硬启动，记录静态区域相应内存页的映射表尚不存在。
-	 * 而映射表是建立映射关系的先驱条件，需要先一步初始化好。
-	 * 由于 PMFS 和分配器都还没初始化，我们无法轻松地分配最少寿命的页，
-	 * 因此，我打算直接将映射表这段内存之后的一段连续物理内存映射过去。
-	 * 
-	 * 为什么选择在这里初始化 WPMFS？
-	 * 是因为恰好在这里计算好了静态区域的大小。
-	 */
-		reserved_size = journal_data_start + sbi->jsize;
-		if (wpmfs_init(sb, reserved_size)) {
-			wpmfs_error("Init failed.\n");
-			return ERR_PTR(-EPERM);
-		}
-        reserved_size += sbi->vmi.map_size;
+	/*
+		* 在开始初始化 PMFS 之前，首先将静态区域全部映射到 vmalloc space。
+		* 但由于现在是硬启动，记录静态区域相应内存页的映射表尚不存在。
+		* 而映射表是建立映射关系的先驱条件，需要先一步初始化好。
+		* 由于 PMFS 和分配器都还没初始化，我们无法轻松地分配最少寿命的页，
+		* 因此，我打算直接将映射表这段内存之后的一段连续物理内存映射过去。
+		*
+		* 为什么选择在这里初始化 WPMFS？
+		* 是因为恰好在这里计算好了静态区域的大小。
+		*/
+	reserved_size = journal_data_start + sbi->jsize;
+	if (wpmfs_init(sb, reserved_size)) {
+		wpmfs_error("Init failed.\n");
+		return ERR_PTR(-EPERM);
+	}
+	reserved_size += sbi->vmi.map_size;
 
 	super = pmfs_get_super(sb);
 	pmfs_memunlock_range(sb, super, journal_data_start);
@@ -499,6 +499,9 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	pmfs_flush_buffer(de, PMFS_DIR_REC_LEN(2), false);
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
+
+	// 整个文件系统基本就绪，开始打印文件系统信息
+	wpmfs_print_memory_layout(sb, reserved_size);
 
 	return root_i;
 }
