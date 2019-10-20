@@ -1631,31 +1631,37 @@ void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
   *pdatablk = cpu_to_le64(tmp_blockoff);
 }
 
-static void wpmfs_replace_tired_page(struct super_block *sb, __le64 *blk_index) {
+static void wpmfs_replace_tired_page(struct super_block *sb,
+                                     __le64 *blk_index) {
   unsigned long blocknr;
   int errval;
   void *dst, *src;
   u64 blockoff;
-	u64 tmp_blockoff;
+  u64 tmp_blockoff;
 
   errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
-	  if (errval == -ENOMEM) {
+  if (errval == -ENOMEM) {
     wpmfs_error("Migration(Case Stranded) failed. Memory exhausted.\n");
     return;
   }
 
-	// allocate a new page
+  // allocate a new page
   blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
 
   // copy the page content
-	tmp_blockoff = le64_to_cpu(*blk_index);
+  tmp_blockoff = le64_to_cpu(*blk_index);
   src = pmfs_get_block(sb, tmp_blockoff);
   tmp_blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   dst = pmfs_get_block(sb, tmp_blockoff);
-  memcpy_page(dst, src); 
+  memcpy_page(dst, src);
 
   // modify the tree index
   *blk_index = cpu_to_le64(tmp_blockoff);
+
+  wpmfs_dbg_wl_stranded(
+      "Migration(Case Stranded): \
+	We've replace datablock at %px with datablock at %px.\n",
+      src, dst);
 }
 
 static void wpmfs_replace_tired_pages_recur(struct super_block *sb,
@@ -1694,9 +1700,6 @@ static void wpmfs_replace_tired_pages_recur(struct super_block *sb,
 void wpmfs_file_updated(struct inode *inode, bool minor) {
   struct super_block *sb = inode->i_sb;
   struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
-
-	//TODO: remove me
-	return;
 
   if (!wt_file_updated(&inode->i_private, minor)) return;
 

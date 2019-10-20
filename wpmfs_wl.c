@@ -139,7 +139,8 @@ static void *trygrab_mapping_entry(struct address_space *mapping, pgoff_t index,
 
   if (unlikely(!slot) || slot_locked(mapping, slot)) {
     xa_unlock_irq(&mapping->i_pages);
-    wpmfs_dbg_wl_rmap("Failed to grab mapping entry.\n");
+    wpmfs_dbg_wl_rmap(
+        "Migration(Case Rmap) failed. Cannot grab mapping entry.\n");
     return ERR_PTR(-EAGAIN);
   }
 
@@ -158,7 +159,8 @@ static void put_locked_mapping_entry(struct address_space *mapping,
   slot = radix_tree_lookup_slot(&mapping->i_pages, index);
   if (unlikely(!slot)) {
     xa_unlock_irq(&mapping->i_pages);
-    wpmfs_dbg_wl_rmap("Failed to lock mapping entry.\n");
+    wpmfs_dbg_wl_rmap(
+        "Migration(Case Rmap) failed. Cannot lock mapping entry.\n");
     return;
   }
   unlock_slot(mapping, slot);
@@ -375,7 +377,7 @@ void wpmfs_int_top(unsigned long pfn) {
     /* Schedule the bottom handler */
     queue_work(_int_ctrl.workqueue, &_int_ctrl.work);
   else
-    wpmfs_error("kfifo may be full.\n");
+    wpmfs_error("kfifo for workqueue has full.\n");
 }
 
 static int _init_int(struct super_block *sb) {

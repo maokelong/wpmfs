@@ -141,18 +141,18 @@ static inline void wt_cnter_add_int_addr(void* addr, uint64_t cnt) {
  * per-inode update-tracking counter (i_private)
  *************************************************/
 
-// we dont need to initialize the `inode->i_private` since 
+// we dont need to initialize the `inode->i_private` since
 // `inode_init_always` will do that for us
 
 // i_private: &inode->i_private, used as a cnter
 // minor: if only replace a single datablock
 // return true if a file has suffered too many updates
 static inline bool wt_file_updated(void** i_private, bool minor) {
-  wt_cnter_t* pcnter;
+  wt_cnter_t* pcnter = (wt_cnter_t*)i_private;
   long res, cnt;
 
-  if (!i_private) return false;
-  pcnter = *(wt_cnter_t**)i_private;
+  if (!pcnter) return false;
+
   cnt = minor ? 1 : FILE_UPDATE_CNT_MAJOR;
   res = atomic_long_add_return(cnt, pcnter);
   return (res & get_file_update_thes_val()) ^
