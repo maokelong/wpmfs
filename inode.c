@@ -1628,7 +1628,8 @@ void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
   memcpy_page(dst, src); 
 
   // modify the tree index
-  *pdatablk = cpu_to_le64(tmp_blockoff);
+	PM_EQU(*pdatablk, cpu_to_le64(tmp_blockoff));
+
 }
 
 static void wpmfs_replace_tired_page(struct super_block *sb,
@@ -1656,7 +1657,7 @@ static void wpmfs_replace_tired_page(struct super_block *sb,
   memcpy_page(dst, src);
 
   // modify the tree index
-  *blk_index = cpu_to_le64(tmp_blockoff);
+	PM_EQU(*blk_index, cpu_to_le64(tmp_blockoff));
 
   wpmfs_dbg_wl_stranded(
       "Migration(Case Stranded): \

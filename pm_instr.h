@@ -106,6 +106,18 @@ extern unsigned int pmfs_tracemask;
                                         sizeof(y)); \
     })
 
+#define PM_TOUCH(pm_dst, size)                      \
+    ({                                              \
+            PM_TRACE("%s:%p:%lu:%s:%d\n",           \
+                        PM_WRT_MARKER,              \
+                        &(pm_dst),                  \
+                        sizeof((pm_dst)),           \
+                        __FILENAME__,               \
+                        __LINE__);                  \
+            wt_cnter_add_int_addr((void*)&pm_dst,   \
+                                             size); \
+    })
+
 #define PM_OR_EQU(pm_dst, y)                        \
     ({                                              \
             PM_TRACE("%s:%p:%lu:%s:%d\n",           \

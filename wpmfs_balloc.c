@@ -47,6 +47,8 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   target_bin = wpmfs_get_bin(sb, blocknr);
   new_node = (struct list_head *)pmfs_get_block(sb, blocknr);
   list_add(new_node, &sbi->block_bins[target_bin]);
+  PM_TOUCH(new_node, sizeof(new_node));
+  PM_TOUCH(new_node->prev, sizeof(new_node->prev));
 
   /* update statistic info */
   sbi->num_free_blocks += num_blocks;
@@ -92,6 +94,9 @@ int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
     if (list_empty(lcur)) continue;
     entry = lcur->next;
     list_del(lcur->next);
+    PM_TOUCH(lcur, sizeof(lcur));
+    PM_TOUCH(lcur->next, sizeof(lcur->next));
+
     *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sb, lcur), 0);
     goto new_suc;
   }
