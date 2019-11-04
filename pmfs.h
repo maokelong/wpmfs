@@ -34,11 +34,12 @@
 #define PAGE_SHIFT_2M 21
 #define PAGE_SHIFT_1G 30
 
-#define PMFS_ASSERT(x)                                                 \
-	if (!(x)) {                                                     \
-		printk(KERN_WARNING "assertion failed %s:%d: %s\n",     \
-	               __FILE__, __LINE__, #x);                         \
-	}
+#define PMFS_ASSERT(x)                                                      \
+  if (!(x)) {                                                               \
+    printk(KERN_WARNING "assertion failed %s:%d: %s\n", __FILE__, __LINE__, \
+           #x);                                                             \
+    dump_stack();                                                           \
+  }
 
 /*
  * Debug code
@@ -330,10 +331,9 @@ struct pmfs_inode_info {
 /* 
  * WPMFS 映射内存相关信息
  */
-struct wpmfs_vm_info {
-	void *addr;	// to vmalloc space
-	unsigned long map_size;
-	//TODO: 根据需要扩展更多字段
+struct wpmfs_vmap_info {
+	void *base;	// to vmalloc space
+	u64 size;
 };
 
 /*
@@ -393,7 +393,7 @@ struct pmfs_sb_info {
 	struct list_head s_truncate;
 	struct mutex s_truncate_lock;
 	/* wpmfs: vmalloc space management related structure */
-	struct wpmfs_vm_info vmi;
+	struct wpmfs_vmap_info vmapi;
 	
 	/* wpmfs: block management related structure */
 	int num_bins;
@@ -419,7 +419,7 @@ static inline struct pmfs_super_block *pmfs_get_super(struct super_block *sb)
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
 	// return (struct pmfs_super_block *)sbi->virt_addr;
-	return (struct pmfs_super_block *)sbi->vmi.addr;
+	return (struct pmfs_super_block *)sbi->vmapi.base;
 }
 
 static inline pmfs_journal_t *pmfs_get_journal(struct super_block *sb)
@@ -443,7 +443,7 @@ static inline struct pmfs_super_block *pmfs_get_redund_super(struct super_block 
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	wpmfs_assert(0);
 
-	return (struct pmfs_super_block *)(sbi->vmi.addr + PMFS_SB_SIZE);
+	return (struct pmfs_super_block *)(sbi->vmapi.base + PMFS_SB_SIZE);
 }
 
 /* If this is part of a read-modify-write of the block,
@@ -459,9 +459,9 @@ static inline void *pmfs_get_block(struct super_block *sb, u64 blockoff)
 static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
 {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	PMFS_ASSERT(offset <= PMFS_SB_SIZE * 2 + sbi->jsize);
+	PMFS_ASSERT(offset <= sbi->vmapi.size);
 
-  return offset ? ((void *)sbi->vmi.addr + offset) : NULL;
+  return offset ? ((void *)sbi->vmapi.base + offset) : NULL;
 }
 
 static inline u64 wpmfs_get_blocknr(struct super_block *sb, unsigned long pfn)
@@ -653,19 +653,15 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 	return (struct pmfs_inode *)((void *)sbi->virt_addr + bp + ino_offset);
 }
 
-static inline u64
-pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
-{
-	PMFS_ASSERT(!is_vmalloc_addr(addr));
-	return (u64)(addr - sbi->virt_addr);
+static inline u64 pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr) {
+  PMFS_ASSERT(!is_vmalloc_addr(addr));
+  return (u64)(addr - sbi->virt_addr);
 }
 
-static inline u64
-pmfs_get_vaddr_off(struct pmfs_sb_info *sbi, void *vaddr)
-{
-	//TODO: proper check here
-	PMFS_ASSERT(vaddr >= sbi->vmi.addr);
-	return (u64)(vaddr - sbi->vmi.addr);
+static inline u64 pmfs_get_vaddr_off(struct pmfs_sb_info *sbi, void *vaddr) {
+  PMFS_ASSERT(vaddr >= sbi->vmapi.base &&
+               vaddr < (sbi->vmapi.base + sbi->vmapi.size));
+  return (u64)(vaddr - sbi->vmapi.base);
 }
 
 static inline u64

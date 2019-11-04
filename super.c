@@ -426,11 +426,10 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 		* 是因为恰好在这里计算好了静态区域的大小。
 		*/
 	reserved_size = journal_data_start + sbi->jsize;
-	if (wpmfs_init(sb, reserved_size)) {
+	if (wpmfs_init(sb, &reserved_size)) {
 		wpmfs_error("Init failed.\n");
 		return ERR_PTR(-EPERM);
 	}
-	reserved_size += sbi->vmi.map_size;
 
 	super = pmfs_get_super(sb);
 	pmfs_memunlock_range(sb, super, journal_data_start);

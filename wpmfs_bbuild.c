@@ -145,6 +145,7 @@ static int pmfs_allocate_datablock_block_inode(pmfs_transaction_t *trans,
 void pmfs_save_blocknode_mappings(struct super_block *sb)
 {
 	unsigned long num_blocks, blocknr;
+	//TODO: deal with inode0
 	struct pmfs_inode *pi =  pmfs_get_inode(sb, PMFS_BLOCKNODE_IN0);
 	struct pmfs_blocknode_lowhigh *p;
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
