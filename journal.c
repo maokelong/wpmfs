@@ -651,7 +651,7 @@ int pmfs_add_logentry(struct super_block *sb,
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	pmfs_logentry_t *le;
 	int num_les = 0, i;
-	uint64_t le_start = size ? pmfs_get_addr_off(sbi, addr) : 0;
+	uint64_t le_start = size ? pmfs_get_addr_off(sb, addr) : 0;
 	uint8_t le_size;
 	INIT_TIMING(add_log_time);
 

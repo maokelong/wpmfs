@@ -653,15 +653,15 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 	return (struct pmfs_inode *)((void *)sbi->virt_addr + bp + ino_offset);
 }
 
-static inline u64 pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr) {
-  PMFS_ASSERT(!is_vmalloc_addr(addr));
-  return (u64)(addr - sbi->virt_addr);
-}
+static inline u64 pmfs_get_addr_off(struct super_block *sb, void *addr) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-static inline u64 pmfs_get_vaddr_off(struct pmfs_sb_info *sbi, void *vaddr) {
-  PMFS_ASSERT(vaddr >= sbi->vmapi.base &&
-               vaddr < (sbi->vmapi.base + sbi->vmapi.size));
-  return (u64)(vaddr - sbi->vmapi.base);
+  if (!is_vmalloc_addr(addr)) return (u64)(addr - sbi->virt_addr);
+
+  PMFS_ASSERT(addr >= sbi->vmapi.base &&
+              addr < (sbi->vmapi.base + sbi->vmapi.size));
+  return (wpmfs_get_blocknr(sb, vmalloc_to_pfn(addr)) << PAGE_SHIFT) |
+         ((u64)addr & ~PAGE_MASK);
 }
 
 static inline u64

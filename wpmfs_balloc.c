@@ -75,7 +75,6 @@ int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
   u64 blockoff;
   struct page *page;
 
-
   /* huge block is not supported */
   num_blocks = pmfs_get_numblocks(btype);
   wpmfs_assert(num_blocks == 1);
@@ -93,7 +92,7 @@ int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
     if (list_empty(lcur)) continue;
     entry = lcur->next;
     list_del(lcur->next);
-    *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sbi, lcur), 0);
+    *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sb, lcur), 0);
     goto new_suc;
   }
 
