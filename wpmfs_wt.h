@@ -71,16 +71,6 @@ struct wt_cnter_file {
 extern struct wt_cnter_file _wt_cnter_file;
 extern unsigned long _pfn0;
 
-/* Commands r/w ing wt counters. For proc/ioctl. */
-#define WPMFS_CMD_INC_CNT 0xBCD00020
-#define WPMFS_CMD_GET_CNT 0xBCD00021
-
-/* The information of the filepage-corrleated wt counter. */
-struct wt_cnter_info {
-  uint64_t pageoff;  // 被统计页起始位置相对于文件的偏移
-  uint64_t cnt;      // 被统计页的写次数（读写取决于命令）
-};
-
 static inline uint64_t wt_cnter_read_pfn(unsigned long pfn) {
   wt_cnter_t* pcnter = _wt_cnter_file.base + pfn - _pfn0;
   return atomic_long_read(pcnter);
@@ -134,6 +124,9 @@ static inline void wt_cnter_track_addr(void* addr, uint64_t cnt,
     }
   }
 }
+
+extern void wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt);
+extern void wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t* cnt);
 
 /*************************************************
  * per-inode update-tracking counter (i_private)

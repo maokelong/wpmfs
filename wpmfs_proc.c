@@ -18,9 +18,15 @@ static struct proc_dir_entry *ent;
 
 #pragma pack(1)  // 统一不加 padding
 struct {
-  int fd;
   unsigned opcode;
-  struct wt_cnter_info packet;
+  union {
+    struct {
+      int fd;
+      uint64_t pageoff;  // 被统计页起始位置相对于文件的偏移
+      uint64_t cnt;      // 被统计页的写次数（读写取决于命令）
+    };
+    // uint64_t capacity;
+  };
 } message;
 #pragma pack()
 
@@ -32,53 +38,42 @@ static ssize_t write_handler(struct file *file, const char __user *ubuf,
   int retval = -EINVAL;
 
   /* 获取并检查参数 */
-  if (count != sizeof(message) &&
-      count != sizeof(message) - sizeof(message.packet.cnt)) {
-    wpmfs_error(
-        "Received illegal message, of which size = %lu. Note that only %lu and "
-        "%lu are expected.\n",
-        count, sizeof(message), sizeof(message) - sizeof(message.packet.cnt));
-    goto out;
-  }
   if (copy_from_user(&message, ubuf, count)) {
     wpmfs_error("Failed to read user buffer.\n");
     goto out;
   };
-  if (message.fd < 0 || (message.opcode != WPMFS_CMD_GET_CNT &&
-                         message.opcode != WPMFS_CMD_INC_CNT)) {
-    wpmfs_error(
-        "Received invalid request, "
-        "of which, fd = %d, opcode = 0x%x.\n",
-        message.fd, message.opcode);
-    fput(fileUsr);
-    goto out;
-  }
-
-  /* 获取应用内存池指针 */
-  fileUsr = fget_raw(message.fd);
-  if (!fileUsr) {
-    wpmfs_error("Failed to open target file. fd = %d.\n", message.fd);
-    goto out;
-  }
-
-  wpmfs_debug(
-      "fd = %d, opcode = 0x%x, pageoff = %u, cnt = %u. Message size = %lu.\n",
-      message.fd, message.opcode, message.packet.pageoff, message.packet.cnt,
-      count);
 
   /* 处理用户请求 */
   switch (message.opcode) {
+    // To update the write-tracking counter for page at given fileoff
     case WPMFS_CMD_INC_CNT:
-      wpmfs_inc_cnter(fileUsr->f_inode, message.packet);
+      fileUsr = fget_raw(message.fd);
+      if (!fileUsr) {
+        wpmfs_error("Failed to open target file. fd = %d.\n", message.fd);
+        goto out;
+      }
+      wt_cnter_track_fileoff(fileUsr->f_inode, message.pageoff, message.cnt);
+      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
+                  message.pageoff, message.cnt);
       break;
 
+    // To read the write-tracking counter for page at given fileoff
     case WPMFS_CMD_GET_CNT:
-      wpmfs_get_cnter(fileUsr->f_inode, &message.packet);
+      fileUsr = fget_raw(message.fd);
+      if (!fileUsr) {
+        wpmfs_error("Failed to open target file. fd = %d.\n", message.fd);
+        goto out;
+      }
+      wt_cnter_read_fileoff(fileUsr->f_inode, message.pageoff, &message.cnt);
       break;
+
+      // To get the capacity of the whole filesystem (in bytes).
+      // case WPMFS_CMD_GET_CAP:
+      //   break;
 
     default:
-      // 检查做得正确的话不可能到达这个分支
-      wpmfs_assert(0);
+      wpmfs_error("Received invalid request: opcode = 0x%x.\n", message.opcode);
+      goto out;
   }
 
   /* 成功，释放文件指针 */
@@ -94,20 +89,26 @@ static ssize_t read_handler(struct file *file, char __user *ubuf, size_t count,
   char buf[BUFSIZE];
   int retval = -EINVAL, len;
 
-  /* 检查应用是否提供了正确的缓冲区 */
-  if (count != sizeof(message.packet.cnt)) {
-    wpmfs_error("Illegal user buffer, of which size = %lu.\n", count);
-    goto out;
-  }
-
   /* 传输页写次数给应用 */
-  len = sprintf(buf, "%llu\n", message.packet.cnt);
-  if (copy_to_user(ubuf, buf, len)) {
-    wpmfs_error("Failed to fill in user buffer.");
-    goto out;
+  switch (message.opcode) {
+    case WPMFS_CMD_GET_CNT:
+      len = sprintf(buf, "%llu\n", message.cnt);
+      if (copy_to_user(ubuf, buf, len)) {
+        wpmfs_error("Failed to fill in user buffer.");
+        goto out;
+      }
+      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
+                  message.pageoff, message.cnt);
+      break;
+
+      // case WPMFS_CMD_GET_CAP:
+      //   break;
+
+    default:
+      wpmfs_error("Confusing read request: opcode = 0x%x.\n", message.opcode);
+      goto out;
   }
 
-  /* 成功 */
   retval = 0;  // 表示文件已经读至结尾
 
 out:

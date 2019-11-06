@@ -22,7 +22,7 @@ void wpmfs_init_all_cnter() {
   smp_rmb();
 }
 
-void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet) {
+void wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt) {
   loff_t isize;
   size_t error = ENODATA;
   unsigned long pfn;
@@ -33,20 +33,20 @@ void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet) {
   isize = i_size_read(_inode);
   if (!isize) goto out;
 
-  block = pmfs_find_data_block(_inode, packet.pageoff);
+  block = pmfs_find_data_block(_inode, pageoff);
   if (unlikely(!block)) goto out;
 
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 更新页追踪计数器 */
-  wt_cnter_track_pfn(pfn, packet.cnt, true);
+  wt_cnter_track_pfn(pfn, cnt, true);
   error = 0;
 
 out:
   if (error) wpmfs_error("");
 }
 
-void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet) {
+void wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t *cnt) {
   loff_t isize;
   size_t error = ENODATA;
   unsigned long pfn;
@@ -57,13 +57,13 @@ void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet) {
   isize = i_size_read(_inode);
   if (!isize) goto out;
 
-  block = pmfs_find_data_block(_inode, packet->pageoff);
+  block = pmfs_find_data_block(_inode, pageoff);
   if (unlikely(!block)) goto out;
 
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 读取页追踪计数器 */
-  packet->cnt = wt_cnter_read_pfn(pfn);
+  *cnt = wt_cnter_read_pfn(pfn);
   error = 0;
 
 out:
