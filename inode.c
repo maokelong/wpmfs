@@ -1625,7 +1625,7 @@ void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
   src = pmfs_get_block(sb, tmp_blockoff);
   tmp_blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   dst = pmfs_get_block(sb, tmp_blockoff);
-  memcpy_page(dst, src); 
+  memcpy_page(dst, src, true); 
 
   // modify the tree index
 	PM_EQU(*pdatablk, cpu_to_le64(tmp_blockoff));
@@ -1654,7 +1654,7 @@ static void wpmfs_replace_tired_page(struct super_block *sb,
   src = pmfs_get_block(sb, tmp_blockoff);
   tmp_blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   dst = pmfs_get_block(sb, tmp_blockoff);
-  memcpy_page(dst, src);
+  memcpy_page(dst, src, true);
 
   // modify the tree index
 	PM_EQU(*blk_index, cpu_to_le64(tmp_blockoff));

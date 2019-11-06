@@ -39,7 +39,7 @@ void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet) {
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 更新页追踪计数器 */
-  wt_cnter_add_int_pfn(pfn, packet.cnt);
+  wt_cnter_track_pfn(pfn, packet.cnt, true);
   error = 0;
 
 out:
@@ -63,7 +63,7 @@ void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet) {
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 读取页追踪计数器 */
-  packet->cnt = _wt_cnter_read(pfn);
+  packet->cnt = wt_cnter_read_pfn(pfn);
   error = 0;
 
 out:

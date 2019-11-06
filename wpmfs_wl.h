@@ -11,7 +11,7 @@
 #define WPMFS_PAGE_SHIFT (3)
 #define WPMFS_PAGE_USING (1 << 0)
 #define WPMFS_PAGE_TIRED (1 << 1)
-#define WPMFS_PAGE_MPTABLE (1 << 2)  // page->index available
+#define WPMFS_PAGE_VMAP (1 << 2)  // page->index available
 
 static inline unsigned long wpmfs_page_marks(struct page* page) {
   atomic64_t* pmarks = (atomic64_t*)&page->private;
@@ -63,6 +63,18 @@ static inline m4m_slot_t* wpmfs_get_m4m(struct super_block* sb,
   return (m4m_slot_t*)(mptable + 1);
 }
 
+static inline m4m_slot_t* wpmfs_get_m4m_slot(struct super_block* sb,
+                                             pgoff_t index) {
+  return wpmfs_get_m4m(sb, NULL) + (index >> PAGE_SHIFT);
+}
+
+static inline mptable_slot_t* wpmfs_get_pgtable_slot(struct super_block* sb,
+                                                     pgoff_t index) {
+  u64 blocknr = le64_to_cpu(wpmfs_get_m4m_slot(sb, index)->frag_blocknr);
+  u64 blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+
+  return (mptable_slot_t*)pmfs_get_block(sb, blockoff) + (index & ~PAGE_MASK);
+}
 /*************************************************
  * install and unisntall of wpmfs
  *************************************************/

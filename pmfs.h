@@ -561,14 +561,18 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 	PM_MOVNTI(dest, length, length - (length%4)); /* This macro does not perform movnti, only records */
 }
 
-static inline void memcpy_page(void *dst, void *src) {
+static inline void memcpy_page(void *dst, void *src, bool signal_int) {
   if (dst == src) {
     wpmfs_error("dst == src.\n");
     return;
   }
 
   // TODO: 基于 sse2 提供的 movntdq 指令加速传输
-  PM_MEMCPY(dst, src, PAGE_SIZE);
+  if (signal_int)
+    PM_MEMCPY(dst, src, PAGE_SIZE);
+  else
+    PM_MEMCPY_NO_INT(dst, src, PAGE_SIZE);
+
   pmfs_flush_buffer(dst, PAGE_SIZE, true);
 }
 
@@ -729,7 +733,9 @@ static inline void check_eof_blocks(struct super_block *sb,
 
 static inline int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	int target_bin = (int)(wt_cnter_read(blocknr) / get_int_thres_size());
+	u64 blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+	u64 pfn = pmfs_get_pfn(sb, blockoff);
+	int target_bin = (int)(wt_cnter_read_pfn(pfn) / get_int_thres_size());
 	return (target_bin < sbi->num_bins) ? target_bin : sbi->num_bins - 1;
 }
 

@@ -80,7 +80,7 @@ static inline bool _check_rmap(unsigned long pfn) {
 
 static bool _check_vmap(unsigned long pfn) {
   struct page *page = pfn_to_page(pfn);
-  return wpmfs_page_marks(page) & WPMFS_PAGE_MPTABLE;
+  return wpmfs_page_marks(page) & WPMFS_PAGE_VMAP;
 }
 
 static enum PAGE_TYPE _page_type(unsigned long pfn) {
@@ -311,9 +311,107 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
   iput(inode);
 }
 
+static void *pfn_to_vaddr(struct super_block *sb, unsigned long pfn) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct page *page = pfn_to_page(pfn);
+
+  PMFS_ASSERT(wpmfs_page_marks(page) & WPMFS_PAGE_VMAP);
+  return sbi->vmapi.base + (page->index << PAGE_SHIFT);
+}
+
+static pte_t *get_vmalloc_pte(unsigned long address) {
+  pgd_t *pgd;
+  p4d_t *p4d;
+  pud_t *pud;
+  pmd_t *pmd;
+  pte_t *pte;
+  int tmp;
+
+  PMFS_ASSERT(is_vmalloc_addr((void *)address));
+
+  // pre-fault addr
+  tmp = *(int *)address;
+
+  pgd = pgd_offset(current->mm, address);
+  if (!pgd_present(*pgd)) return NULL;
+
+  p4d = p4d_offset(pgd, address);
+  if (!p4d_present(*p4d)) return NULL;
+
+  pud = pud_offset(p4d, address);
+  if (!pud_present(*pud)) return NULL;
+
+  pmd = pmd_offset(pud, address);
+  if (!pmd_present(*pmd)) return NULL;
+
+  pte = pte_offset_kernel(pmd, address);
+  if (!pte_present(*pte)) return NULL;
+
+  return pte;
+}
+
 static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
-  // TODO
-  wpmfs_error("impossible routine currently.\n");
+  unsigned long blocknr, blockoff;
+  struct page *page = pfn_to_page(pfn), *new_page;
+  int errval;
+  void *src_direct, *dst_direct, *src_vmap;
+  pte_t *ptep, new_pte;
+  unsigned long flags;
+  mptable_slot_t *mptable_slot;
+
+  // 获取 Tired 页，使用直接映射区的虚拟地址，而非 vmalloc space 的虚拟地址
+  // 因为后续要对后者设置为只读，这对前者并无影响
+  blocknr = wpmfs_get_blocknr(sb, pfn);
+  blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+  src_direct = pmfs_get_block(sb, blockoff);
+
+  // 分配新页，新页暂未映射到 vmalloc space，因此只能使用直接映射区的地址
+  errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+  if (errval == -ENOMEM) {
+    wpmfs_error("Migration(Case Vmap) failed. Memory exhausted.\n");
+    return;
+  }
+
+  blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+  dst_direct = pmfs_get_block(sb, blockoff);
+
+  new_page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
+  new_page->index = page->index;
+  wpmfs_mark_page(new_page, wpmfs_page_marks(page), wpmfs_page_marks(page));
+
+  // 获取映射到 Tired 页的在 vmalloc space 的虚拟地址的 pte
+  src_vmap = pfn_to_vaddr(sb, pfn);
+  ptep = get_vmalloc_pte((unsigned long)src_vmap);
+  if (!ptep) {
+    wpmfs_error("Failed to get ptep.\n");
+    pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
+    return;
+  }
+
+  new_pte = mk_pte(new_page, PAGE_KERNEL);
+
+  // 获取 mptable 表项
+  mptable_slot = wpmfs_get_pgtable_slot(sb, page->index);
+
+  // copy the page content
+  // 此处引入了新型的页保护错误，所以我们在 page.c 中相应地添加了一条新路径
+  // less likely, but necessary
+  local_irq_save(flags);
+  set_pte_atomic(ptep, pte_wrprotect(*ptep));
+  __flush_tlb_one_kernel((unsigned long)src_vmap);
+
+  memcpy_page(dst_direct, src_direct, true);
+  PM_EQU(mptable_slot->blocknr, blocknr);
+  pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
+                    true);
+
+  new_pte = pte_mkwrite(new_pte);
+  set_pte_atomic(ptep, new_pte);
+  __flush_tlb_one_kernel((unsigned long)src_vmap);
+  local_irq_restore(flags);
+
+  pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
+  // TODO: 检查 mptable 是否需要进行损耗均衡
 }
 
 static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
@@ -455,7 +553,7 @@ static int _init_mem(struct super_block *sb, u64 *reserved_memory_size) {
     PM_EQU(mptable[cur_slot].blocknr, cpu_to_le64(blocknr));
     ppages[cur_slot] = page;
     wpmfs_mark_page(page, wpmfs_page_marks(page),
-                    WPMFS_PAGE_MPTABLE | WPMFS_PAGE_USING);
+                    WPMFS_PAGE_VMAP | WPMFS_PAGE_USING);
     page->index = cur_slot;
   }
 

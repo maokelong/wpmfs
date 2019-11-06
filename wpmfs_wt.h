@@ -81,17 +81,12 @@ struct wt_cnter_info {
   uint64_t cnt;      // 被统计页的写次数（读写取决于命令）
 };
 
-static inline uint64_t wt_cnter_read(unsigned long blocknr) {
-  wt_cnter_t* pcnter = _wt_cnter_file.base + blocknr + _pfn0;
-  return atomic_long_read(pcnter);
-}
-
-static inline uint64_t _wt_cnter_read(unsigned long pfn) {
+static inline uint64_t wt_cnter_read_pfn(unsigned long pfn) {
   wt_cnter_t* pcnter = _wt_cnter_file.base + pfn - _pfn0;
   return atomic_long_read(pcnter);
 }
 
-static inline uint64_t _wt_cnter_read_addr(void* addr) {
+static inline uint64_t wt_cnter_read_addr(void* addr) {
   unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
                                             : virt_to_phys(addr) >> PAGE_SHIFT;
   wt_cnter_t* pcnter = _wt_cnter_file.base + pfn - _pfn0;
@@ -105,23 +100,26 @@ static inline bool _wt_cnter_add(unsigned long pfn, uint64_t cnt) {
   return (res & get_int_thres_mask()) ^ ((res - cnt) & get_int_thres_mask());
 }
 
-static inline void wt_cnter_add_int_pfn(unsigned long pfn, uint64_t cnt) {
-  if (_wt_cnter_add(pfn, cnt)) wpmfs_int_top(pfn);
+static inline void wt_cnter_track_pfn(unsigned long pfn, uint64_t cnt,
+                                      bool signal_int) {
+  if (_wt_cnter_add(pfn, cnt) && signal_int) wpmfs_int_top(pfn);
 }
 
-static inline void _wt_cnter_add_int_addr(void* addr, uint64_t cnt) {
+static inline void _wt_cnter_track_addr(void* addr, uint64_t cnt,
+                                        bool signal_int) {
   // 当前访问虚拟映射内存，遍历页表找到 pte 中的 pfn
   // 否则，当前访问直接映射内存，减去 PAGE_OFFSET 就得到了物理地址
   unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
                                             : virt_to_phys(addr) >> PAGE_SHIFT;
-  wt_cnter_add_int_pfn(pfn, cnt);
+  wt_cnter_track_pfn(pfn, cnt, signal_int);
 }
 
-static inline void wt_cnter_add_int_addr(void* addr, uint64_t cnt) {
+static inline void wt_cnter_track_addr(void* addr, uint64_t cnt,
+                                       bool signal_int) {
   uint64_t addr_t = (uint64_t)addr;
   if (likely((addr_t & ~PAGE_MASK) + cnt <= PAGE_SIZE)) {
     // 当该次写操作均发生在同一页
-    _wt_cnter_add_int_addr(addr, cnt);
+    _wt_cnter_track_addr(addr, cnt, signal_int);
   } else {
     // 当该次写操作均发生在多个页
     for (addr_t &= PAGE_MASK; addr_t < (uint64_t)addr + cnt;
@@ -132,7 +130,7 @@ static inline void wt_cnter_add_int_addr(void* addr, uint64_t cnt) {
       if (addr_t == (((uint64_t)addr + cnt) & PAGE_MASK))
         sub_cnt = ((uint64_t)addr + sub_cnt) & ~PAGE_MASK;
 
-      _wt_cnter_add_int_addr((void*)addr_t, sub_cnt);
+      _wt_cnter_track_addr((void*)addr_t, sub_cnt, signal_int);
     }
   }
 }
