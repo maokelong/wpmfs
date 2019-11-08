@@ -75,6 +75,14 @@ static inline mptable_slot_t* wpmfs_get_pgtable_slot(struct super_block* sb,
 
   return (mptable_slot_t*)pmfs_get_block(sb, blockoff) + (index & ~PAGE_MASK);
 }
+
+/*************************************************
+ * exchange information with the proc file
+ *************************************************/
+
+extern u64 wpmfs_get_capacity(void);
+extern bool wpmfs_get_fs_wear(unsigned long blocknr, u64* wear_times);
+
 /*************************************************
  * install and unisntall of wpmfs
  *************************************************/

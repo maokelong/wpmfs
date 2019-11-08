@@ -680,3 +680,29 @@ void wpmfs_print_memory_layout(struct super_block *sb,
   pmfs_info("datablks - currently first free at 0x%px, total free cnts %lu.\n",
             pdatablk, sbi->num_free_blocks);
 }
+
+u64 wpmfs_get_capacity(void) {
+  u64 capacity;
+  struct super_block *sb;
+
+  sb = get_super(_int_ctrl.fs_bdev);
+  if (!sb) {
+    wpmfs_error("Cannot get super block\n");
+    return 0;
+  }
+
+  capacity = PMFS_SB(sb)->initsize;
+  drop_super(sb);
+
+  return capacity;
+}
+
+bool wpmfs_get_fs_wear(unsigned long blocknr, u64 *wear_times) {
+  static u64 capacity = 0;
+
+  if (!capacity) capacity = wpmfs_get_capacity();
+  if (blocknr >= (capacity >> PAGE_SHIFT)) return false;
+
+  *wear_times = wt_cnter_read_blocknr(blocknr);
+  return true;
+}

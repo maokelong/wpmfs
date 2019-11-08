@@ -14,8 +14,6 @@
 
 struct wt_cnter_info;
 extern void wpmfs_init_all_cnter(void);
-extern void wpmfs_inc_cnter(void* inode, struct wt_cnter_info packet);
-extern void wpmfs_get_cnter(void* inode, struct wt_cnter_info* packet);
 extern void wpmfs_int_top(unsigned long pfn);
 
 #define wt_cnter_t atomic64_t
@@ -71,6 +69,11 @@ struct wt_cnter_file {
 extern struct wt_cnter_file _wt_cnter_file;
 extern unsigned long _pfn0;
 
+static inline uint64_t wt_cnter_read_blocknr(unsigned long blocknr) {
+  wt_cnter_t* pcnter = _wt_cnter_file.base + blocknr;
+  return atomic_long_read(pcnter);
+}
+
 static inline uint64_t wt_cnter_read_pfn(unsigned long pfn) {
   wt_cnter_t* pcnter = _wt_cnter_file.base + pfn - _pfn0;
   return atomic_long_read(pcnter);
@@ -92,7 +95,9 @@ static inline bool _wt_cnter_add(unsigned long pfn, uint64_t cnt) {
 
 static inline void wt_cnter_track_pfn(unsigned long pfn, uint64_t cnt,
                                       bool signal_int) {
-  if (_wt_cnter_add(pfn, cnt) && signal_int) wpmfs_int_top(pfn);
+  if (_wt_cnter_add(pfn, cnt) && signal_int) {
+    wpmfs_int_top(pfn);
+  }
 }
 
 static inline void _wt_cnter_track_addr(void* addr, uint64_t cnt,
@@ -125,8 +130,8 @@ static inline void wt_cnter_track_addr(void* addr, uint64_t cnt,
   }
 }
 
-extern void wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt);
-extern void wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t* cnt);
+extern bool wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt);
+extern bool wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t* cnt);
 
 /*************************************************
  * per-inode update-tracking counter (i_private)

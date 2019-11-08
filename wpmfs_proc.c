@@ -2,6 +2,7 @@
  * wpmfs 注册的 proc 文件
  */
 
+
 #include "wpmfs_proc.h"
 #include <linux/fdtable.h>
 #include <linux/file.h>
@@ -19,14 +20,23 @@ static struct proc_dir_entry *ent;
 #pragma pack(1)  // 统一不加 padding
 struct {
   unsigned opcode;
+
   union {
     struct {
       int fd;
-      uint64_t pageoff;  // 被统计页起始位置相对于文件的偏移
-      uint64_t cnt;      // 被统计页的写次数（读写取决于命令）
+      uint64_t pageoff;    // 被统计页起始位置相对于文件的偏移
+      uint64_t page_wcnt;  // 被统计页的写次数（读写取决于命令）
     };
-    // uint64_t capacity;
+
+    uint64_t capacity;
+
+    struct {
+      uint64_t blocknr;
+      uint64_t blk_wcnt;
+    };
   };
+
+  uint8_t succ;
 } message;
 #pragma pack()
 
@@ -47,29 +57,54 @@ static ssize_t write_handler(struct file *file, const char __user *ubuf,
   switch (message.opcode) {
     // To update the write-tracking counter for page at given fileoff
     case WPMFS_CMD_INC_CNT:
+      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
+                  message.pageoff, message.page_wcnt);
+
       fileUsr = fget_raw(message.fd);
       if (!fileUsr) {
-        wpmfs_error("Failed to open target file. fd = %d.\n", message.fd);
+        wpmfs_error("File for fd %d not exist.\n", message.fd);
         goto out;
       }
-      wt_cnter_track_fileoff(fileUsr->f_inode, message.pageoff, message.cnt);
-      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
-                  message.pageoff, message.cnt);
+
+      message.succ = wt_cnter_track_fileoff(fileUsr->f_inode, message.pageoff,
+                                            message.page_wcnt);
+      if (!message.succ)
+        wpmfs_error("pageoff %llu too large.\n", message.pageoff);
+
       break;
 
     // To read the write-tracking counter for page at given fileoff
     case WPMFS_CMD_GET_CNT:
+      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
+                  message.pageoff, message.page_wcnt);
+
       fileUsr = fget_raw(message.fd);
       if (!fileUsr) {
-        wpmfs_error("Failed to open target file. fd = %d.\n", message.fd);
+        wpmfs_error("File for fd %d not exist.\n", message.fd);
         goto out;
       }
-      wt_cnter_read_fileoff(fileUsr->f_inode, message.pageoff, &message.cnt);
+
+      message.succ = wt_cnter_read_fileoff(fileUsr->f_inode, message.pageoff,
+                                           &message.page_wcnt);
+      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
+                  message.pageoff, message.page_wcnt);
+
+      if (!message.succ)
+        wpmfs_error("pageoff %llu too large.\n", message.pageoff);
       break;
 
-      // To get the capacity of the whole filesystem (in bytes).
-      // case WPMFS_CMD_GET_CAP:
-      //   break;
+    // To get the capacity of the whole filesystem (in bytes).
+    case WPMFS_CMD_GET_FS_CAP:
+      message.capacity = wpmfs_get_capacity();
+      message.succ = message.capacity != 0;
+
+      break;
+
+    case WPMFS_CMD_GET_FS_WEAR:
+      message.succ = wpmfs_get_fs_wear(message.blocknr, &message.blk_wcnt);
+      if (!message.succ)
+        wpmfs_error("blocknr %llu too large.\n", message.blocknr);
+      break;
 
     default:
       wpmfs_error("Received invalid request: opcode = 0x%x.\n", message.opcode);
@@ -78,7 +113,7 @@ static ssize_t write_handler(struct file *file, const char __user *ubuf,
 
   /* 成功，释放文件指针 */
   retval = count;  // 表示成功「写入」的长度
-  fput(fileUsr);
+  if (fileUsr) fput(fileUsr);
 
 out:
   return retval;
@@ -86,23 +121,18 @@ out:
 
 static ssize_t read_handler(struct file *file, char __user *ubuf, size_t count,
                             loff_t *ppos) {
-  char buf[BUFSIZE];
-  int retval = -EINVAL, len;
+  int retval = -EINVAL;
+
+  if (!message.succ) goto out;
 
   /* 传输页写次数给应用 */
   switch (message.opcode) {
     case WPMFS_CMD_GET_CNT:
-      len = sprintf(buf, "%llu\n", message.cnt);
-      if (copy_to_user(ubuf, buf, len)) {
-        wpmfs_error("Failed to fill in user buffer.");
-        goto out;
-      }
-      wpmfs_debug("fd = %d, pageoff = %llu, cnt = %llu.\n", message.fd,
-                  message.pageoff, message.cnt);
+    case WPMFS_CMD_GET_FS_CAP:
+    case WPMFS_CMD_GET_FS_WEAR:
+      if (copy_to_user(ubuf, &message, sizeof(message)))
+        wpmfs_error("Failed to fill in user buffer.\n");
       break;
-
-      // case WPMFS_CMD_GET_CAP:
-      //   break;
 
     default:
       wpmfs_error("Confusing read request: opcode = 0x%x.\n", message.opcode);

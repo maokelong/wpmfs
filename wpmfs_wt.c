@@ -22,9 +22,9 @@ void wpmfs_init_all_cnter() {
   smp_rmb();
 }
 
-void wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt) {
+bool wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt) {
   loff_t isize;
-  size_t error = ENODATA;
+  bool ret = false;
   unsigned long pfn;
   uint64_t block;
   struct inode* _inode = inode;
@@ -40,15 +40,15 @@ void wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt) {
 
   /* 更新页追踪计数器 */
   wt_cnter_track_pfn(pfn, cnt, true);
-  error = 0;
+  ret = true;
 
 out:
-  if (error) wpmfs_error("");
+  return ret;
 }
 
-void wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t *cnt) {
+bool wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t* cnt) {
+  bool ret = false;
   loff_t isize;
-  size_t error = ENODATA;
   unsigned long pfn;
   uint64_t block;
   struct inode* _inode = inode;
@@ -64,8 +64,8 @@ void wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t *cnt) {
 
   /* 读取页追踪计数器 */
   *cnt = wt_cnter_read_pfn(pfn);
-  error = 0;
+  ret = true;
 
 out:
-  if (error) wpmfs_error("");
+  return ret;
 }
