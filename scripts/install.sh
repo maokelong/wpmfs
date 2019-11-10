@@ -29,7 +29,7 @@ fi
 # insmod and mount
 sudo insmod $CONFIG_NAME_FS.ko measure_timing=0
 sleep 1
-sudo mount -t $CONFIG_NAME_FS -o init,dbgmask=$CONFIG_FS_DBGMASK,jsize=$CONFIG_FS_SIZE_JOURNAL \
+sudo mount -t $CONFIG_NAME_FS -o init,dbgmask=$CONFIG_FS_DBGMASK,jsize=$CONFIG_FS_SIZE_JOURNAL,wlsw=$CONFIG_FS_WL_SWITCH \
   $CONFIG_PATH_PMEM_DEV $CONFIG_PATH_FS
 USER_NAME=$USER
 sudo chown $USER_NAME $CONFIG_PATH_FS

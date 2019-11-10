@@ -35,6 +35,10 @@ void (*prmap_walk)(struct page *, struct rmap_walk_control *);
  * @fifo_lock: protect access to pfn queue
  * @work: should bind to the bottom half
  * @workqueue: a private workqueue run works
+ * @wl_switch: switch of wear-leveling mechanism.
+ *             1st bit for rmap
+ *             2nd bit for vmap
+ *             3rd bit for stranded
  *
  * This struct provides communication channels for the top half, to temporally
  * store pfns of hot pages and shedule the bottom half.
@@ -48,6 +52,8 @@ struct int_ctrl {
 
   struct work_struct work;
   struct workqueue_struct *workqueue;
+
+  int wl_switch;
 };
 
 struct int_ctrl _int_ctrl = {
@@ -65,6 +71,8 @@ void fs_now_removed(void) {
   _int_ctrl.fs_ready = false;
   _int_ctrl.fs_bdev = NULL;
 }
+
+void wpmfs_set_wl_switch(int wlsw) { _int_ctrl.wl_switch = wlsw; }
 
 static bool _fetch_int_requests(unsigned long *ppfn) {
   // 这里使用最简单的请求调度算法，不对页迁移请求进行任何合并操作
@@ -426,15 +434,15 @@ static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
 static void _wear_lerveling(struct super_block *sb, unsigned long pfn) {
   switch (_page_type(pfn)) {
     case TYPE_RMAP:
-      _level_type_rmap(sb, pfn);
+      if (_int_ctrl.wl_switch & 0x1) _level_type_rmap(sb, pfn);
       break;
 
     case TYPE_VMAP:
-      _level_type_vmap(sb, pfn);
+      if (_int_ctrl.wl_switch & 0x2) _level_type_vmap(sb, pfn);
       break;
 
     case TYPE_STRANDED:
-      _level_type_stranded(sb, pfn);
+      if (_int_ctrl.wl_switch & 0x4) _level_type_stranded(sb, pfn);
       break;
 
     default:
@@ -465,6 +473,8 @@ void wpmfs_int_top(unsigned long pfn) {
   /* Check if filesytem has been established */
   if (!_int_ctrl.fs_ready) return;
   wpmfs_assert(_int_ctrl.workqueue);
+
+  if (!_int_ctrl.wl_switch) return;
 
   /* Enqueue to the FIFO */
   if (kfifo_in_spinlocked(&_int_ctrl.fifo, &pfn, sizeof(pfn),
@@ -637,6 +647,22 @@ static void _exit_mem(struct super_block *sb) {
 void wpmfs_exit(struct super_block *sb) {
   _exit_int();
   _exit_mem(sb);
+}
+
+void wpmfs_print_wl_switch(struct super_block *sb) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+
+  if (!_int_ctrl.wl_switch) {
+    pmfs_info("Wear-leveling mechanism: Disabled.\n");
+    return;
+  }
+
+  if (_int_ctrl.wl_switch & 0x1)
+    pmfs_info("Wear-leveling mechanism: Rmap eabled.\n");
+  if (_int_ctrl.wl_switch & 0x2)
+    pmfs_info("Wear-leveling mechanism: Vmap enable.\n");
+  if (_int_ctrl.wl_switch & 0x4)
+    pmfs_info("Wear-leveling mechanism: Stranded enabled.\n");
 }
 
 void wpmfs_print_memory_layout(struct super_block *sb,

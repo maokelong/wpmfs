@@ -161,32 +161,48 @@ static loff_t pmfs_max_size(int bits)
 }
 
 enum {
-	Opt_bpi, Opt_init, Opt_jsize,
-	Opt_num_inodes, Opt_mode, Opt_uid,
-	Opt_gid, Opt_blocksize, Opt_wprotect, Opt_wprotectold,
-	Opt_err_cont, Opt_err_panic, Opt_err_ro,
-	Opt_hugemmap, Opt_nohugeioremap, Opt_dbgmask, Opt_tracemask, Opt_bs, Opt_err
+  Opt_bpi,
+  Opt_init,
+  Opt_jsize,
+  Opt_num_inodes,
+  Opt_mode,
+  Opt_uid,
+  Opt_gid,
+  Opt_blocksize,
+  Opt_wprotect,
+  Opt_wprotectold,
+  Opt_err_cont,
+  Opt_err_panic,
+  Opt_err_ro,
+  Opt_hugemmap,
+  Opt_nohugeioremap,
+  Opt_dbgmask,
+  Opt_tracemask,
+  Opt_bs,
+  Opt_wlsw,
+  Opt_err
 };
 
 static const match_table_t tokens = {
-	{ Opt_bpi,	     "bpi=%u"		  },
-	{ Opt_init,	     "init"		  },
-	{ Opt_jsize,         "jsize=%s"		  },
-	{ Opt_num_inodes,    "num_inodes=%u"  	  },
-	{ Opt_mode,	     "mode=%o"		  },
-	{ Opt_uid,	     "uid=%u"		  },
-	{ Opt_gid,	     "gid=%u"		  },
-	{ Opt_wprotect,	     "wprotect"		  },
-	{ Opt_wprotectold,   "wprotectold"	  },
-	{ Opt_err_cont,	     "errors=continue"	  },
-	{ Opt_err_panic,     "errors=panic"	  },
-	{ Opt_err_ro,	     "errors=remount-ro"  },
-	{ Opt_hugemmap,	     "hugemmap"		  },
-	{ Opt_nohugeioremap, "nohugeioremap"	  },
-	{ Opt_dbgmask,	     "dbgmask=%u"	  },
-	{ Opt_tracemask,     "tracemask=%u"	  },
-	{ Opt_bs,	     "backing_dev=%s"	  },
-	{ Opt_err,	     NULL		  },
+    {Opt_bpi, "bpi=%u"},
+    {Opt_init, "init"},
+    {Opt_jsize, "jsize=%s"},
+    {Opt_num_inodes, "num_inodes=%u"},
+    {Opt_mode, "mode=%o"},
+    {Opt_uid, "uid=%u"},
+    {Opt_gid, "gid=%u"},
+    {Opt_wprotect, "wprotect"},
+    {Opt_wprotectold, "wprotectold"},
+    {Opt_err_cont, "errors=continue"},
+    {Opt_err_panic, "errors=panic"},
+    {Opt_err_ro, "errors=remount-ro"},
+    {Opt_hugemmap, "hugemmap"},
+    {Opt_nohugeioremap, "nohugeioremap"},
+    {Opt_dbgmask, "dbgmask=%u"},
+    {Opt_tracemask, "tracemask=%u"},
+    {Opt_bs, "backing_dev=%s"},
+    {Opt_wlsw, "wlsw=%u"},
+    {Opt_err, NULL},
 };
 
 static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
@@ -307,6 +323,11 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			pmfs_tracemask = option;
+			break;
+		case Opt_wlsw:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			wpmfs_set_wl_switch(option);
 			break;
 		default: {
 			goto bad_opt;
@@ -501,7 +522,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 
 	// 整个文件系统基本就绪，开始打印文件系统信息
 	wpmfs_print_memory_layout(sb, reserved_size);
-
+	wpmfs_print_wl_switch(sb);
 	return root_i;
 }
 
@@ -511,6 +532,7 @@ static inline void set_default_opts(struct pmfs_sb_info *sbi)
 	set_opt(sbi->s_mount_opt, HUGEIOREMAP);
 	set_opt(sbi->s_mount_opt, ERRORS_CONT);
 	sbi->jsize = PMFS_DEFAULT_JOURNAL_SIZE;
+	wpmfs_set_wl_switch(7);
 }
 
 static void pmfs_root_check(struct super_block *sb, struct pmfs_inode *root_pi)
