@@ -92,28 +92,25 @@ static inline bool _wt_cnter_add(unsigned long pfn, uint64_t cnt) {
   return (res & get_int_thres_mask()) ^ ((res - cnt) & get_int_thres_mask());
 }
 
-static inline void wt_cnter_track_pfn(unsigned long pfn, uint64_t cnt,
-                                      bool signal_int) {
-  if (_wt_cnter_add(pfn, cnt) && signal_int) {
+static inline void wt_cnter_track_pfn(unsigned long pfn, uint64_t cnt) {
+  if (_wt_cnter_add(pfn, cnt)) {
     wpmfs_int_top(pfn);
   }
 }
 
-static inline void _wt_cnter_track_addr(void* addr, uint64_t cnt,
-                                        bool signal_int) {
+static inline void _wt_cnter_track_addr(void* addr, uint64_t cnt) {
   // 当前访问虚拟映射内存，遍历页表找到 pte 中的 pfn
   // 否则，当前访问直接映射内存，减去 PAGE_OFFSET 就得到了物理地址
   unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
                                             : virt_to_phys(addr) >> PAGE_SHIFT;
-  wt_cnter_track_pfn(pfn, cnt, signal_int);
+  wt_cnter_track_pfn(pfn, cnt);
 }
 
-static inline void wt_cnter_track_addr(void* addr, uint64_t cnt,
-                                       bool signal_int) {
+static inline void wt_cnter_track_addr(void* addr, uint64_t cnt) {
   uint64_t addr_t = (uint64_t)addr;
   if (likely((addr_t & ~PAGE_MASK) + cnt <= PAGE_SIZE)) {
     // 当该次写操作均发生在同一页
-    _wt_cnter_track_addr(addr, cnt, signal_int);
+    _wt_cnter_track_addr(addr, cnt);
   } else {
     // 当该次写操作均发生在多个页
     for (addr_t &= PAGE_MASK; addr_t < (uint64_t)addr + cnt;
@@ -124,8 +121,43 @@ static inline void wt_cnter_track_addr(void* addr, uint64_t cnt,
       if (addr_t == (((uint64_t)addr + cnt) & PAGE_MASK))
         sub_cnt = ((uint64_t)addr + sub_cnt) & ~PAGE_MASK;
 
-      _wt_cnter_track_addr((void*)addr_t, sub_cnt, signal_int);
+      _wt_cnter_track_addr((void*)addr_t, sub_cnt);
     }
+  }
+}
+
+static inline bool wt_cnter_track_pfn_intless(unsigned long pfn, uint64_t cnt) {
+  return _wt_cnter_add(pfn, cnt);
+}
+
+static inline bool _wt_cnter_track_addr_intless(void* addr, uint64_t cnt) {
+  // 当前访问虚拟映射内存，遍历页表找到 pte 中的 pfn
+  // 否则，当前访问直接映射内存，减去 PAGE_OFFSET 就得到了物理地址
+  unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
+                                            : virt_to_phys(addr) >> PAGE_SHIFT;
+  return wt_cnter_track_pfn_intless(pfn, cnt);
+}
+
+static inline bool wt_cnter_track_addr_intless(void* addr, uint64_t cnt) {
+  uint64_t addr_t = (uint64_t)addr;
+  if (likely((addr_t & ~PAGE_MASK) + cnt <= PAGE_SIZE)) {
+    // 当该次写操作均发生在同一页
+    return _wt_cnter_track_addr_intless(addr, cnt);
+  } else {
+    bool singal_int = false;
+    // 当该次写操作均发生在多个页
+    for (addr_t &= PAGE_MASK; addr_t < (uint64_t)addr + cnt;
+         addr_t += PAGE_SIZE) {
+      uint64_t sub_cnt = PAGE_SIZE;
+      if (addr_t == ((uint64_t)addr & PAGE_MASK))
+        sub_cnt = PAGE_SIZE - ((uint64_t)addr & ~PAGE_MASK);
+      if (addr_t == (((uint64_t)addr + cnt) & PAGE_MASK))
+        sub_cnt = ((uint64_t)addr + sub_cnt) & ~PAGE_MASK;
+
+      if (_wt_cnter_track_addr_intless((void*)addr_t, sub_cnt))
+        singal_int = true;
+    }
+    return singal_int;
   }
 }
 

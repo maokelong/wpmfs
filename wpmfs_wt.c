@@ -39,7 +39,7 @@ bool wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt) {
   pfn = pmfs_get_pfn(_inode->i_sb, block);
 
   /* 更新页追踪计数器 */
-  wt_cnter_track_pfn(pfn, cnt, true);
+  wt_cnter_track_pfn(pfn, cnt);
   ret = true;
 
 out:

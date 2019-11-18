@@ -86,14 +86,22 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                         \
     pm_dst = y;                                                               \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y), true);                     \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
+  })
+
+#define PM_EQU_NO_INT(pm_dst, y, signal_int)                                  \
+  ({                                                                          \
+    PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
+             __FILENAME__, __LINE__);                                         \
+    pm_dst = y;                                                               \
+    signal_int = wt_cnter_track_addr_intless((void*)&pm_dst, sizeof(y));      \
   })
 
 #define PM_TOUCH(pm_dst, size)                                                \
   ({                                                                          \
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                         \
-    wt_cnter_track_addr((void*)&pm_dst, size, true);                          \
+    wt_cnter_track_addr((void*)&pm_dst, size);                                \
   })
 
 #define PM_OR_EQU(pm_dst, y)                                                  \
@@ -101,7 +109,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                         \
     pm_dst |= y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y), true);                     \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
   })
 
 #define PM_AND_EQU(pm_dst, y)                                                 \
@@ -109,7 +117,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                         \
     pm_dst &= y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y), true);                     \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
   })
 
 #define PM_ADD_EQU(pm_dst, y)                                                 \
@@ -117,7 +125,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                         \
     pm_dst += y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y), true);                     \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
   })
 
 #define PM_SUB_EQU(pm_dst, y)                                                 \
@@ -125,7 +133,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                         \
     pm_dst -= y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y), true);                     \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
   })
 
 /* PM Writes to a range of memory */
@@ -134,7 +142,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), (unsigned long)sz, \
              __FILENAME__, __LINE__);                                         \
     memset(pm_dst, val, sz);                                                  \
-    wt_cnter_track_addr(pm_dst, sz, true);                                    \
+    wt_cnter_track_addr(pm_dst, sz);                                          \
   })
 
 #define PM_MEMCPY(pm_dst, src, sz)                                            \
@@ -142,7 +150,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), (unsigned long)sz, \
              __FILENAME__, __LINE__);                                         \
     memcpy(pm_dst, src, sz);                                                  \
-    wt_cnter_track_addr(pm_dst, sz, true);                                    \
+    wt_cnter_track_addr(pm_dst, sz);                                          \
   })
 
 #define PM_MEMCPY_NO_INT(pm_dst, src, sz)                                     \
@@ -150,7 +158,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), (unsigned long)sz, \
              __FILENAME__, __LINE__);                                         \
     memcpy(pm_dst, src, sz);                                                  \
-    wt_cnter_track_addr(pm_dst, sz, false);                                   \
+    wt_cnter_track_addr_intless(pm_dst, sz);                                  \
   })
 
 #define PM_STRCPY(pm_dst, src)                                          \
@@ -159,14 +167,14 @@ extern unsigned int pmfs_tracemask;
              min((int)PMFS_NAME_LEN, (int)strlen((src))), __FILENAME__, \
              __LINE__);                                                 \
     strcpy(pm_dst, src);                                                \
-    wt_cnter_track_addr(pm_dst, strlen(src), true);                     \
+    wt_cnter_track_addr(pm_dst, strlen(src));                           \
   })
 
 #define PM_MOVNTI(pm_dst, count, copied)                                       \
   ({                                                                           \
     PM_TRACE("%s:%p:%lu:%lu:%s:%d\n", PM_NTI, (pm_dst), (unsigned long)copied, \
              (unsigned long)count, __FILENAME__, __LINE__);                    \
-    wt_cnter_track_addr(pm_dst, count, true);                                  \
+    wt_cnter_track_addr(pm_dst, count);                                        \
   })
 
 #define PM_MOVNTI_DI(pm_dst, count, copied)                             \
@@ -174,7 +182,7 @@ extern unsigned int pmfs_tracemask;
     PM_TRACE("%s:%p:%lu:%lu:%s:%d\n", PM_DI_MARKER, (pm_dst),           \
              (unsigned long)copied, (unsigned long)count, __FILENAME__, \
              __LINE__);                                                 \
-    wt_cnter_track_addr(pm_dst, count, true);                           \
+    wt_cnter_track_addr(pm_dst, count);                                 \
   })
 
 /* PM Read macros */

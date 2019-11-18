@@ -367,6 +367,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   pte_t *ptep, new_pte;
   unsigned long flags;
   mptable_slot_t *mptable_slot;
+  bool signal_int;
 
   // 获取 Tired 页，使用直接映射区的虚拟地址，而非 vmalloc space 的虚拟地址
   // 因为后续要对后者设置为只读，这对前者并无影响
@@ -410,7 +411,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   __flush_tlb_one_kernel((unsigned long)src_vmap);
 
   memcpy_page(dst_direct, src_direct, false);
-  PM_EQU(mptable_slot->blocknr, blocknr);
+  PM_EQU_NO_INT(mptable_slot->blocknr, cpu_to_le64(blocknr), signal_int);
   pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
                     true);
 
@@ -420,7 +421,36 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   local_irq_restore(flags);
 
   pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
-  // TODO: 检查 mptable 是否需要进行损耗均衡
+
+  // 检查 mptable 是否需要进行损耗均衡
+  // 目前只有 kworker 单线程地使用 mptable，因此无需做并发控制
+  // TODO: not tested
+  if (signal_int) {
+    m4m_slot_t *m4m_slot = wpmfs_get_m4m_slot(sb, page->index);
+
+    blocknr = le64_to_cpu(m4m_slot->frag_blocknr);
+    blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+    page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
+
+    if (wpmfs_page_marks(page) & WPMFS_PAGE_TIRED) {
+      src_direct = pmfs_get_block(sb, blockoff);
+
+      // 分配新页，新页暂未映射到 vmalloc space，因此只能使用直接映射区的地址
+      errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+      if (errval == -ENOMEM) {
+        wpmfs_error("Migration(Case Vmap) failed. Memory exhausted.\n");
+        return;
+      }
+      blockoff =
+          pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+      dst_direct = pmfs_get_block(sb, blockoff);
+
+      memcpy_page(dst_direct, src_direct, true);
+      PM_EQU(m4m_slot->frag_blocknr, cpu_to_le64(blocknr));
+      pmfs_flush_buffer(&m4m_slot->frag_blocknr, sizeof(m4m_slot->frag_blocknr),
+                        true);
+    }
+  }
 }
 
 static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
