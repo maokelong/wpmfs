@@ -5,32 +5,6 @@
 #include "pmfs.h"
 
 /*************************************************
- * per page vector stroing some flags (page->private)
- *************************************************/
-
-#define WPMFS_PAGE_SHIFT (3)
-#define WPMFS_PAGE_USING (1 << 0)
-#define WPMFS_PAGE_TIRED (1 << 1)
-#define WPMFS_PAGE_VMAP (1 << 2)  // page->index available
-
-static inline unsigned long wpmfs_page_marks(struct page* page) {
-  atomic64_t* pmarks = (atomic64_t*)&page->private;
-  return atomic_long_read(pmarks);
-}
-
-static inline bool wpmfs_mark_page(struct page* page, unsigned long ori_flags,
-                                   unsigned long new_flags) {
-  //  kernel bugs will report the empry page.
-  atomic64_t* pmarks = (atomic64_t*)&page->private;
-  if (atomic_long_cmpxchg(pmarks, ori_flags, new_flags) != ori_flags) {
-    wpmfs_error("contention on page marks detected.\n");
-    return false;
-  }
-
-  return true;
-}
-
-/*************************************************
  * descriptor and operations for mapping table
  *************************************************/
 
@@ -93,6 +67,7 @@ extern int wpmfs_init(struct super_block* sb, u64* reserved_memory_size);
 extern void wpmfs_exit(struct super_block* sb);
 
 extern void wpmfs_print_wl_switch(struct super_block *sb);
+extern bool wpmfs_wl_stranded_enabled(void);
 extern void wpmfs_print_memory_layout(struct super_block* sb,
                                       unsigned long reserved_size);
 #endif /* WPMFS_WL_H */

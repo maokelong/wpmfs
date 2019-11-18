@@ -41,7 +41,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   num_blocks = pmfs_get_numblocks(btype);
   wpmfs_assert(num_blocks == 1);
   /* start_hint should never been used here */
-  wpmfs_assert(start_hint == NULL);
+  wpmfs_assert(start_hint == NULL || *start_hint == NULL);
 
   /* insert the block into appropriate bin */
   target_bin = wpmfs_get_bin(sb, blocknr);

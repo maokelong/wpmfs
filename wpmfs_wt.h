@@ -25,8 +25,8 @@ extern void wpmfs_int_top(unsigned long pfn);
 /* Whenever a page suffers 2^power writes, the memory controller will sigal a
  * inetrrupt, suggesting page migraition. */
 // TODO: 28
-#define INTERRUPT_THRESHOLD_POWER (13)
-#define CELL_ENDURANCE_POWER (13)
+#define INTERRUPT_THRESHOLD_POWER (20)
+#define CELL_ENDURANCE_POWER (INTERRUPT_THRESHOLD_POWER)
 
 extern size_t _int_thres_power;
 static inline uint64_t get_int_thres_size(void) {
@@ -46,8 +46,7 @@ static inline uint64_t get_cell_idea_endurance(void) {
  *************************************************/
 
 // TODO: choose suitable configs for me
-#define FILE_UPDATE_THRESHOLD_POWER (3)
-#define FILE_UPDATE_CNT_MAJOR (100)
+#define FILE_UPDATE_THRESHOLD_POWER (INTERRUPT_THRESHOLD_POWER)
 
 static inline uint64_t get_file_update_thes_val(void) {
   return 1 << FILE_UPDATE_THRESHOLD_POWER;
@@ -132,27 +131,5 @@ static inline void wt_cnter_track_addr(void* addr, uint64_t cnt,
 
 extern bool wt_cnter_track_fileoff(void* inode, uint64_t pageoff, uint64_t cnt);
 extern bool wt_cnter_read_fileoff(void* inode, uint64_t pageoff, uint64_t* cnt);
-
-/*************************************************
- * per-inode update-tracking counter (i_private)
- *************************************************/
-
-// we dont need to initialize the `inode->i_private` since
-// `inode_init_always` will do that for us
-
-// i_private: &inode->i_private, used as a cnter
-// minor: if only replace a single datablock
-// return true if a file has suffered too many updates
-static inline bool wt_file_updated(void** i_private, bool minor) {
-  wt_cnter_t* pcnter = (wt_cnter_t*)i_private;
-  long res, cnt;
-
-  if (!pcnter) return false;
-
-  cnt = minor ? 1 : FILE_UPDATE_CNT_MAJOR;
-  res = atomic_long_add_return(cnt, pcnter);
-  return (res & get_file_update_thes_val()) ^
-         ((res - cnt) & get_file_update_thes_mask());
-}
 
 #endif /* WPMFS_WT_H */

@@ -73,6 +73,7 @@ void fs_now_removed(void) {
 }
 
 void wpmfs_set_wl_switch(int wlsw) { _int_ctrl.wl_switch = wlsw; }
+bool wpmfs_wl_stranded_enabled(void) { return _int_ctrl.wl_switch & 0x4; }
 
 static bool _fetch_int_requests(unsigned long *ppfn) {
   // 这里使用最简单的请求调度算法，不对页迁移请求进行任何合并操作
@@ -315,7 +316,6 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
   wpmfs_dbg_wl_rmap("Migration(Case Rmap) succeed. pgoff = %lu.\n",
                     new_page->index);
 
-  wpmfs_file_updated(inode, true);
   iput(inode);
 }
 
@@ -328,19 +328,20 @@ static void *pfn_to_vaddr(struct super_block *sb, unsigned long pfn) {
 }
 
 static pte_t *get_vmalloc_pte(unsigned long address) {
-  pgd_t *pgd;
+  pgd_t *base, *pgd;
   p4d_t *p4d;
   pud_t *pud;
   pmd_t *pmd;
   pte_t *pte;
-  int tmp;
+  unsigned long tmp;
 
   PMFS_ASSERT(is_vmalloc_addr((void *)address));
 
-  // pre-fault addr
-  tmp = *(int *)address;
+  // pre-fault addr, atomic instruction acts as membar
+  tmp = atomic_long_read((atomic64_t *)address);
 
-  pgd = pgd_offset(current->mm, address);
+  base = __va(read_cr3_pa());
+  pgd = &base[pgd_index(address)];
   if (!pgd_present(*pgd)) return NULL;
 
   p4d = p4d_offset(pgd, address);
@@ -385,7 +386,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
 
   new_page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
   new_page->index = page->index;
-  wpmfs_mark_page(new_page, wpmfs_page_marks(page), wpmfs_page_marks(page));
+  wpmfs_mark_page(new_page, wpmfs_page_marks(new_page), wpmfs_page_marks(page));
 
   // 获取映射到 Tired 页的在 vmalloc space 的虚拟地址的 pte
   src_vmap = pfn_to_vaddr(sb, pfn);
@@ -408,7 +409,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   set_pte_atomic(ptep, pte_wrprotect(*ptep));
   __flush_tlb_one_kernel((unsigned long)src_vmap);
 
-  memcpy_page(dst_direct, src_direct, true);
+  memcpy_page(dst_direct, src_direct, false);
   PM_EQU(mptable_slot->blocknr, blocknr);
   pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
                     true);

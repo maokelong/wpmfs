@@ -34,6 +34,10 @@
 #define PAGE_SHIFT_2M 21
 #define PAGE_SHIFT_1G 30
 
+/*************************************************
+ * Macros for debugging
+ *************************************************/
+
 #define PMFS_ASSERT(x)                                                      \
   if (!(x)) {                                                               \
     printk(KERN_WARNING "assertion failed %s:%d: %s\n", __FILE__, __LINE__, \
@@ -41,15 +45,11 @@
     dump_stack();                                                           \
   }
 
-/*
- * Debug code
- */
 #ifdef pr_fmt
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #endif
 
-/* 打印用宏 */
 #define __FILENAME__ \
   (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
@@ -114,6 +114,10 @@ extern unsigned int pmfs_dbgmask;
 #define wpmfs_dbg_wl_stranded(s, args ...)		 \
 	((pmfs_dbgmask & WPMFS_DBGMASK_WL_STRANDED) ? wpmfs_debug1(s, ##args) : 0)
 
+/*************************************************
+ * Macros for mounting options
+ *************************************************/
+
 #define pmfs_set_bit                   __test_and_set_bit_le
 #define pmfs_clear_bit                 __test_and_clear_bit_le
 #define pmfs_find_next_zero_bit                find_next_zero_bit_le
@@ -147,7 +151,10 @@ extern unsigned int pmfs_dbgmask;
 extern unsigned int blk_type_to_shift[PMFS_BLOCK_TYPE_MAX];
 extern unsigned int blk_type_to_size[PMFS_BLOCK_TYPE_MAX];
 
-/* ======================= Timing ========================= */
+/*************************************************
+ * Timing subsystem
+ *************************************************/
+
 enum timing_category {
 	create_t,
 	unlink_t,
@@ -198,7 +205,10 @@ typedef struct timespec timing_t;
 	Countstats[name]++; \
 	}
 
-/* Function Prototypes */
+/*************************************************
+ * Function Prototypes
+ *************************************************/
+
 extern void pmfs_error_mng(struct super_block *sb, const char *fmt, ...);
 
 /* file.c */
@@ -261,9 +271,9 @@ extern unsigned long pmfs_find_region(struct inode *inode, loff_t *offset,
 		int hole);
 extern void pmfs_truncate_del(struct inode *inode);
 extern void pmfs_truncate_add(struct inode *inode, u64 truncate_size);
-extern void wpmfs_file_updated(struct inode *inode, bool minor);
 extern void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
                                          unsigned long blocknr);
+extern u64 wpmfs_replace_tired_page(struct super_block *sb, __le64 *blk_index);
 
 /* ioctl.c */
 extern long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
@@ -286,7 +296,9 @@ extern int pmfs_remount(struct super_block *sb, int *flags, char *data);
 extern int pmfs_block_symlink(struct inode *inode, const char *symname,
 	int len);
 
-/* Inline functions start here */
+/*************************************************
+ * Inline functions
+ *************************************************/
 
 /* Mask out flags that are inappropriate for the given type of inode. */
 static inline __le32 pmfs_mask_flags(umode_t mode, __le32 flags)
@@ -452,8 +464,14 @@ static inline void *pmfs_get_block(struct super_block *sb, u64 blockoff)
 {
 	// struct pmfs_super_block *ps = pmfs_get_super(sb);
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	PMFS_ASSERT(blockoff);
 
 	return blockoff ? ((void *)sbi->virt_addr + blockoff) : NULL;
+}
+
+static inline unsigned long pmfs_get_pfn(struct super_block *sb, u64 blockoff)
+{
+	return (PMFS_SB(sb)->phys_addr + blockoff) >> PAGE_SHIFT;
 }
 
 static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
@@ -576,6 +594,42 @@ static inline void memcpy_page(void *dst, void *src, bool signal_int) {
   pmfs_flush_buffer(dst, PAGE_SIZE, true);
 }
 
+#define WPMFS_PAGE_SHIFT (3)
+#define WPMFS_PAGE_USING (1 << 0)
+#define WPMFS_PAGE_TIRED (1 << 1)
+#define WPMFS_PAGE_VMAP (1 << 2)  // page->index available
+
+static inline unsigned long wpmfs_page_marks(struct page* page) {
+  atomic64_t* pmarks = (atomic64_t*)&page->private;
+  return atomic_long_read(pmarks);
+}
+
+static inline bool wpmfs_mark_page(struct page* page, unsigned long ori_flags,
+                                   unsigned long new_flags) {
+  //  kernel bugs will report the empry page.
+  atomic64_t* pmarks = (atomic64_t*)&page->private;
+  if (atomic_long_cmpxchg(pmarks, ori_flags, new_flags) != ori_flags) {
+    wpmfs_error("contention on page marks detected.\n");
+    return false;
+  }
+
+  return true;
+}
+
+static inline u64 wpmfs_retrieve_datablk(struct super_block *sb, __le64 *level_ptr, unsigned int idx) {
+  u64 bp = 0;
+	unsigned long pfn;
+
+  bp = le64_to_cpu(level_ptr[idx]);
+  if (bp == 0) return 0;
+
+	pfn = pmfs_get_pfn(sb, bp);
+	if (wpmfs_page_marks(pfn_to_page(pfn)) & WPMFS_PAGE_TIRED) 
+		bp = wpmfs_replace_tired_page(sb, level_ptr + idx);
+
+	return bp;	
+}
+
 static inline u64 __pmfs_find_data_block(struct super_block *sb,
 		struct pmfs_inode *pi, unsigned long blocknr)
 {
@@ -591,7 +645,7 @@ static inline u64 __pmfs_find_data_block(struct super_block *sb,
 		level_ptr = pmfs_get_block(sb, bp);
 		bit_shift = (height - 1) * META_BLK_SHIFT;
 		idx = blocknr >> bit_shift;
-		bp = le64_to_cpu(level_ptr[idx]);
+		bp = wpmfs_retrieve_datablk(sb, level_ptr, idx);
 		if (bp == 0)
 			return 0;
 		blocknr = blocknr & ((1 << bit_shift) - 1);
@@ -697,11 +751,6 @@ pmfs_get_blocknr(struct super_block *sb, u64 block, unsigned short btype)
 	return block >> PAGE_SHIFT;
 }
 
-static inline unsigned long pmfs_get_pfn(struct super_block *sb, u64 blockoff)
-{
-	return (PMFS_SB(sb)->phys_addr + blockoff) >> PAGE_SHIFT;
-}
-
 static inline int pmfs_is_mounting(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = (struct pmfs_sb_info *)sb->s_fs_info;
@@ -741,9 +790,9 @@ static inline int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
 
 #include "wprotect.h"
 
-/*
+/*************************************************
  * Inodes and files operations
- */
+ *************************************************/
 
 /* dir.c */
 extern const struct file_operations pmfs_dir_operations;
