@@ -304,7 +304,7 @@ static uint32_t pmfs_process_transaction(struct super_block *sb, uint32_t head,
 				if (gen_id == MAX_GEN_ID)
 					pmfs_invalidate_logentries(sb, &trans);
 			}
-			pmfs_dbg_trans("no cmt tid %d sa %p nle %d tail %x"
+			pmfs_dbg_trans("no cmt tid %d sa %px nle %d tail %x"
 			" gen %d\n",
 			trans.transaction_id,trans.start_addr,trans.num_entries,
 			trans.num_used, trans.gen_id);
@@ -668,7 +668,7 @@ int pmfs_add_logentry(struct super_block *sb,
 	} else
 		num_les = (size + sizeof(le->data) - 1)/sizeof(le->data);
 
-	pmfs_dbg_trans("add le id %d size %x, num_les %d tail %x le %p\n",
+	pmfs_dbg_trans("add le id %d size %x, num_les %d tail %x le %px\n",
 		trans->transaction_id, size, trans->num_entries,
 		trans->num_used, le);
 
@@ -751,7 +751,7 @@ int pmfs_abort_transaction(struct super_block *sb, pmfs_transaction_t *trans)
 
 	if (trans == NULL)
 		return 0;
-	pmfs_dbg_trans("abort trans for tid %x sa %p numle %d tail %x gen %d\n",
+	pmfs_dbg_trans("abort trans for tid %x sa %px numle %d tail %x gen %d\n",
 		trans->transaction_id, trans->start_addr, trans->num_entries,
 		trans->num_used, trans->gen_id);
 	dump_transaction(sbi, trans);

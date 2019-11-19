@@ -74,7 +74,7 @@ u64 pmfs_find_data_block(struct inode *inode, unsigned long file_blocknr)
 		return 0;
 
 	bp = __pmfs_find_data_block(sb, pi, blocknr);
-	pmfs_dbg1("find_data_block %lx, %x %llx blk_p %p blk_shift %x"
+	pmfs_dbg1("find_data_block %lx, %x %llx blk_p %px blk_shift %x"
 		" blk_offset %lx\n", file_blocknr, pi->height, bp,
 		pmfs_get_block(sb, bp), blk_shift, blk_offset);
 
@@ -453,7 +453,7 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 	if (!pi->root)
 		goto end_truncate_blocks;
 
-	pmfs_dbg_verbose("truncate: pi %p iblocks %llx %llx %llx %x %llx\n", pi,
+	pmfs_dbg_verbose("truncate: pi %px iblocks %llx %llx %llx %x %llx\n", pi,
 			 pi->i_blocks, start, end, pi->height, pi->i_size);
 
 	first_blocknr = (start + (1UL << data_bits) - 1) >> data_bits;
@@ -1132,7 +1132,7 @@ struct inode *pmfs_new_inode(pmfs_transaction_t *trans, struct inode *dir,
 
 	inode_table = pmfs_get_inode_table(sb);
 
-	pmfs_dbg_verbose("inode: %p free_inodes %x total_inodes %x hint %x\n",
+	pmfs_dbg_verbose("inode: %px free_inodes %x total_inodes %x hint %x\n",
 		inode, sbi->s_free_inodes_count, sbi->s_inodes_count,
 		sbi->s_free_inode_hint);
 

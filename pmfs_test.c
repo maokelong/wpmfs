@@ -34,7 +34,7 @@ int __init test_pmfs_write(void)
 	 * Attempt an unprotected clear of checksum information in the
 	 * superblock, this should cause a kernel page protection fault.
 	 */
-	printk("%s: writing to kernel VA %p\n", __func__, psb);
+	printk("%s: writing to kernel VA %px\n", __func__, psb);
 	psb->s_sum = 0;
 
 	return 0;
