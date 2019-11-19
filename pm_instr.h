@@ -59,127 +59,128 @@ extern unsigned int pmfs_tracemask;
 
 /* PM Write macros */
 /* PM Write to variable */
-#define PM_STORE(pm_dst, bytes)                                   \
-  ({                                                              \
+#define PM_STORE(pm_dst, bytes)                                    \
+  ({                                                               \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), bytes, \
-             __FILENAME__, __LINE__);                             \
+             __FILENAME__, __LINE__);                              \
   })
 
-#define PM_WRITE(pm_dst)                                                      \
-  ({                                                                          \
+#define PM_WRITE(pm_dst)                                                       \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-                                                                              \
-    pm_dst;                                                                   \
+             __FILENAME__, __LINE__);                                          \
+                                                                               \
+    pm_dst;                                                                    \
   })
 
-#define PM_WRITE_P(pm_dst)                                                    \
-  ({                                                                          \
+#define PM_WRITE_P(pm_dst)                                                     \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-                                                                              \
-    &(pm_dst);                                                                \
+             __FILENAME__, __LINE__);                                          \
+                                                                               \
+    &(pm_dst);                                                                 \
   })
 
-#define PM_EQU(pm_dst, y)                                                     \
-  ({                                                                          \
+#define PM_EQU(pm_dst, y)                                                      \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    pm_dst = y;                                                               \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
+             __FILENAME__, __LINE__);                                          \
+    pm_dst = y;                                                                \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                            \
   })
 
-#define PM_EQU_NO_INT(pm_dst, y, signal_int)                                  \
-  ({                                                                          \
+#define PM_EQU_NO_INT(pm_dst, y, signal_int)                                   \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    pm_dst = y;                                                               \
-    signal_int = wt_cnter_track_addr_intless((void*)&pm_dst, sizeof(y));      \
+             __FILENAME__, __LINE__);                                          \
+    pm_dst = y;                                                                \
+    signal_int = wt_cnter_track_addr_intless((void*)&pm_dst, sizeof(y));       \
   })
 
-#define PM_TOUCH(pm_dst, size)                                                \
-  ({                                                                          \
+#define PM_TOUCH(pm_dst, size)                                                 \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    wt_cnter_track_addr((void*)&pm_dst, size);                                \
+             __FILENAME__, __LINE__);                                          \
+    wt_cnter_track_addr((void*)&pm_dst, size);                                 \
   })
 
-#define PM_OR_EQU(pm_dst, y)                                                  \
-  ({                                                                          \
+#define PM_OR_EQU(pm_dst, y)                                                   \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    pm_dst |= y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
+             __FILENAME__, __LINE__);                                          \
+    pm_dst |= y;                                                               \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                            \
   })
 
-#define PM_AND_EQU(pm_dst, y)                                                 \
-  ({                                                                          \
+#define PM_AND_EQU(pm_dst, y)                                                  \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    pm_dst &= y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
+             __FILENAME__, __LINE__);                                          \
+    pm_dst &= y;                                                               \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                            \
   })
 
-#define PM_ADD_EQU(pm_dst, y)                                                 \
-  ({                                                                          \
+#define PM_ADD_EQU(pm_dst, y)                                                  \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    pm_dst += y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
+             __FILENAME__, __LINE__);                                          \
+    pm_dst += y;                                                               \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                            \
   })
 
-#define PM_SUB_EQU(pm_dst, y)                                                 \
-  ({                                                                          \
+#define PM_SUB_EQU(pm_dst, y)                                                  \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
-             __FILENAME__, __LINE__);                                         \
-    pm_dst -= y;                                                              \
-    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                           \
+             __FILENAME__, __LINE__);                                          \
+    pm_dst -= y;                                                               \
+    wt_cnter_track_addr((void*)&pm_dst, sizeof(y));                            \
   })
 
 /* PM Writes to a range of memory */
-#define PM_MEMSET(pm_dst, val, sz)                                            \
-  ({                                                                          \
+#define PM_MEMSET(pm_dst, val, sz)                                             \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), (unsigned long)sz, \
-             __FILENAME__, __LINE__);                                         \
-    memset(pm_dst, val, sz);                                                  \
-    wt_cnter_track_addr(pm_dst, sz);                                          \
+             __FILENAME__, __LINE__);                                          \
+    memset(pm_dst, val, sz);                                                   \
+    wt_cnter_track_addr(pm_dst, sz);                                           \
   })
 
-#define PM_MEMCPY(pm_dst, src, sz)                                            \
-  ({                                                                          \
+#define PM_MEMCPY(pm_dst, src, sz)                                             \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), (unsigned long)sz, \
-             __FILENAME__, __LINE__);                                         \
-    memcpy(pm_dst, src, sz);                                                  \
-    wt_cnter_track_addr(pm_dst, sz);                                          \
+             __FILENAME__, __LINE__);                                          \
+    memcpy(pm_dst, src, sz);                                                   \
+    wt_cnter_track_addr(pm_dst, sz);                                           \
   })
 
-#define PM_MEMCPY_NO_INT(pm_dst, src, sz)                                     \
-  ({                                                                          \
+#define PM_MEMCPY_NO_INT(pm_dst, src, sz)                                      \
+  ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, (pm_dst), (unsigned long)sz, \
-             __FILENAME__, __LINE__);                                         \
-    memcpy(pm_dst, src, sz);                                                  \
-    wt_cnter_track_addr_intless(pm_dst, sz);                                  \
+             __FILENAME__, __LINE__);                                          \
+    memcpy(pm_dst, src, sz);                                                   \
+    wt_cnter_track_addr_intless(pm_dst, sz);                                   \
   })
 
 #define PM_STRCPY(pm_dst, src)                                          \
   ({                                                                    \
-    PM_TRACE("%s:%px:%u:%s:%d\n", PM_WRT_MARKER, (pm_dst),               \
+    PM_TRACE("%s:%px:%u:%s:%d\n", PM_WRT_MARKER, (pm_dst),              \
              min((int)PMFS_NAME_LEN, (int)strlen((src))), __FILENAME__, \
              __LINE__);                                                 \
     strcpy(pm_dst, src);                                                \
     wt_cnter_track_addr(pm_dst, strlen(src));                           \
   })
 
-#define PM_MOVNTI(pm_dst, count, copied)                                       \
-  ({                                                                           \
-    PM_TRACE("%s:%px:%lu:%lu:%s:%d\n", PM_NTI, (pm_dst), (unsigned long)copied, \
-             (unsigned long)count, __FILENAME__, __LINE__);                    \
-    wt_cnter_track_addr(pm_dst, count);                                        \
+#define PM_MOVNTI(pm_dst, count, copied)                                \
+  ({                                                                    \
+    PM_TRACE("%s:%px:%lu:%lu:%s:%d\n", PM_NTI, (pm_dst),                \
+             (unsigned long)copied, (unsigned long)count, __FILENAME__, \
+             __LINE__);                                                 \
+    wt_cnter_track_addr(pm_dst, count);                                 \
   })
 
 #define PM_MOVNTI_DI(pm_dst, count, copied)                             \
   ({                                                                    \
-    PM_TRACE("%s:%px:%lu:%lu:%s:%d\n", PM_DI_MARKER, (pm_dst),           \
+    PM_TRACE("%s:%px:%lu:%lu:%s:%d\n", PM_DI_MARKER, (pm_dst),          \
              (unsigned long)copied, (unsigned long)count, __FILENAME__, \
              __LINE__);                                                 \
     wt_cnter_track_addr(pm_dst, count);                                 \
@@ -187,37 +188,37 @@ extern unsigned int pmfs_tracemask;
 
 /* PM Read macros */
 /* Return the data    of persistent variable */
-#define PM_READ(pm_src)                                                      \
-  ({                                                                         \
-    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, &(pm_src), sizeof((pm_src)), \
-             __FILENAME__, __LINE__);                                        \
-    (pm_src);                                                                \
-  })
-
-/* Return the address of persistent variable */
-#define PM_READ_P(pm_src)                                                    \
-  ({                                                                         \
-    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, &(pm_src), sizeof((pm_src)), \
-             __FILENAME__, __LINE__);                                        \
-    &(pm_src);                                                               \
-  })
-
-/* Return the address of persistent variable */
-#define PM_RD_WR_P(pm_src)                                                    \
+#define PM_READ(pm_src)                                                       \
   ({                                                                          \
-    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, &(pm_src), sizeof((pm_src)),  \
+    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, &(pm_src), sizeof((pm_src)), \
              __FILENAME__, __LINE__);                                         \
-    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_src), sizeof((pm_src)), \
+    (pm_src);                                                                 \
+  })
+
+/* Return the address of persistent variable */
+#define PM_READ_P(pm_src)                                                     \
+  ({                                                                          \
+    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, &(pm_src), sizeof((pm_src)), \
              __FILENAME__, __LINE__);                                         \
     &(pm_src);                                                                \
   })
 
+/* Return the address of persistent variable */
+#define PM_RD_WR_P(pm_src)                                                     \
+  ({                                                                           \
+    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, &(pm_src), sizeof((pm_src)),  \
+             __FILENAME__, __LINE__);                                          \
+    PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_src), sizeof((pm_src)), \
+             __FILENAME__, __LINE__);                                          \
+    &(pm_src);                                                                 \
+  })
+
 /* PM Reads to a range of memory */
-#define PM_MEMCMP(pm_dst, src, sz)                                           \
-  ({                                                                         \
+#define PM_MEMCMP(pm_dst, src, sz)                                            \
+  ({                                                                          \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_RD_MARKER, (pm_dst), (unsigned long)sz, \
-             __FILENAME__, __LINE__);                                        \
-    memcmp(pm_dst, src, sz);                                                 \
+             __FILENAME__, __LINE__);                                         \
+    memcmp(pm_dst, src, sz);                                                  \
   })
 
 #define start_epoch() ({ ; })
@@ -233,15 +234,15 @@ extern unsigned int pmfs_tracemask;
  * (done/copied) followed by count to maintain
  * uniformity with other macros
  */
-#define PM_FLUSH(pm_dst, count, done)                                       \
-  ({                                                                        \
+#define PM_FLUSH(pm_dst, count, done)                                        \
+  ({                                                                         \
     PM_TRACE("%s:%px:%u:%u:%s:%d\n", PM_FLUSH_MARKER, (pm_dst), done, count, \
-             __FILENAME__, __LINE__);                                       \
+             __FILENAME__, __LINE__);                                        \
   })
-#define PM_FLUSHOPT(pm_dst, count, done)                                       \
-  ({                                                                           \
-    PM_TRACE("%s:%px:%u:%u:%s:%d\n", PM_FLUSHOPT_MARKER, (pm_dst), done, count, \
-             __FILENAME__, __LINE__);                                          \
+#define PM_FLUSHOPT(pm_dst, count, done)                                 \
+  ({                                                                     \
+    PM_TRACE("%s:%px:%u:%u:%s:%d\n", PM_FLUSHOPT_MARKER, (pm_dst), done, \
+             count, __FILENAME__, __LINE__);                             \
   })
 
 #define PM_COMMIT() \
