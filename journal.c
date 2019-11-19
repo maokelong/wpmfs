@@ -561,6 +561,7 @@ again:
 			goto journal_full;
 	}
 	base = le64_to_cpu(journal->base) + tail;
+	// mark
 	tail = tail + req_size;
 	/* journal wraparound because of this transaction allocation.
 	 * start the transaction from the beginning of the journal so
@@ -571,8 +572,9 @@ again:
 		tail = 0;
 		ptr = (u64 *)&journal->tail;
 		/* writing 8-bytes atomically setting tail to 0 */
-		PM_EQU(journal->tail, (__force u64)cpu_to_le64((u64)next_gen_id(
+		set_64bit(ptr, (__force u64)cpu_to_le64((u64)next_gen_id(
 					le16_to_cpu(journal->gen_id)) << 32));
+		PM_TOUCH(*ptr, sizeof(u64));
 		pmfs_memlock_range(sb, journal, sizeof(*journal));
 		pmfs_dbg_trans("journal wrapped. tail %x gid %d cur tid %d\n",
 			le32_to_cpu(journal->tail),le16_to_cpu(journal->gen_id),
