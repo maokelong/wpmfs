@@ -68,6 +68,20 @@ struct wt_cnter_file {
 extern struct wt_cnter_file _wt_cnter_file;
 extern unsigned long _pfn0;
 
+static inline bool check_pfn(unsigned long pfn) {
+#ifdef debug
+  bool ret = pfn >= _pfn0 &&
+             (pfn - _pfn0) <= (_wt_cnter_file.size / (sizeof(wt_cnter_t)));
+  if (!ret) {
+    printk(KERN_ERR "invalid pfn %lu, pfn0 %lu, _wt_cnter_file.size %llu.\n",
+           pfn, _pfn0, _wt_cnter_file.size);
+    dump_stack();
+  }
+  return ret;
+#endif
+  return true;
+}
+
 static inline uint64_t wt_cnter_read_blocknr(unsigned long blocknr) {
   wt_cnter_t* pcnter = _wt_cnter_file.base + blocknr;
   return atomic_long_read(pcnter);
@@ -82,6 +96,7 @@ static inline uint64_t wt_cnter_read_addr(void* addr) {
   unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
                                             : virt_to_phys(addr) >> PAGE_SHIFT;
   wt_cnter_t* pcnter = _wt_cnter_file.base + pfn - _pfn0;
+  if (!check_pfn(pfn)) return 0;
   return atomic_long_read(pcnter);
 }
 
@@ -103,6 +118,7 @@ static inline void _wt_cnter_track_addr(void* addr, uint64_t cnt) {
   // 否则，当前访问直接映射内存，减去 PAGE_OFFSET 就得到了物理地址
   unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
                                             : virt_to_phys(addr) >> PAGE_SHIFT;
+  if (!check_pfn(pfn)) return;
   wt_cnter_track_pfn(pfn, cnt);
 }
 
@@ -135,6 +151,7 @@ static inline bool _wt_cnter_track_addr_intless(void* addr, uint64_t cnt) {
   // 否则，当前访问直接映射内存，减去 PAGE_OFFSET 就得到了物理地址
   unsigned long pfn = is_vmalloc_addr(addr) ? vmalloc_to_pfn(addr)
                                             : virt_to_phys(addr) >> PAGE_SHIFT;
+  if (!check_pfn(pfn)) return false;
   return wt_cnter_track_pfn_intless(pfn, cnt);
 }
 

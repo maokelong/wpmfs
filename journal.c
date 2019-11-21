@@ -260,8 +260,8 @@ static uint32_t pmfs_process_transaction(struct super_block *sb, uint32_t head,
 	*processed = 0;
 	gen_id = le16_to_cpu(le->gen_id);
 	if (!(le->type & LE_START)) {
-		pmfs_dbg("start of trans %x but LE_START not set. gen_id %d\n",
-				le32_to_cpu(le->transaction_id), gen_id);
+		pmfs_dbg("start of trans %x but LE_START not set. le %px, gen_id %d\n",
+				le32_to_cpu(le->transaction_id), le, gen_id);
 		return next_log_entry(sbi->jsize, new_head);
 	}
 	memset(&trans, 0, sizeof(trans));
@@ -574,7 +574,7 @@ again:
 		/* writing 8-bytes atomically setting tail to 0 */
 		set_64bit(ptr, (__force u64)cpu_to_le64((u64)next_gen_id(
 					le16_to_cpu(journal->gen_id)) << 32));
-		PM_TOUCH(*ptr, sizeof(u64));
+		PM_TOUCH(ptr, sizeof(u64));
 		pmfs_memlock_range(sb, journal, sizeof(*journal));
 		pmfs_dbg_trans("journal wrapped. tail %x gid %d cur tid %d\n",
 			le32_to_cpu(journal->tail),le16_to_cpu(journal->gen_id),

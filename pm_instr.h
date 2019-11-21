@@ -101,7 +101,7 @@ extern unsigned int pmfs_tracemask;
   ({                                                                           \
     PM_TRACE("%s:%px:%lu:%s:%d\n", PM_WRT_MARKER, &(pm_dst), sizeof((pm_dst)), \
              __FILENAME__, __LINE__);                                          \
-    wt_cnter_track_addr((void*)&pm_dst, size);                                 \
+    wt_cnter_track_addr(pm_dst, size);                                 \
   })
 
 #define PM_OR_EQU(pm_dst, y)                                                   \

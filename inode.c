@@ -62,6 +62,7 @@ u64 pmfs_find_data_block(struct inode *inode, unsigned long file_blocknr)
 	u32 blk_shift;
 	unsigned long blk_offset, blocknr = file_blocknr;
 	unsigned int data_bits = blk_type_to_shift[pi->i_blk_type];
+	//TODO: something wrong here. fix me.
 	unsigned int meta_bits = META_BLK_SHIFT;
 	u64 bp;
 

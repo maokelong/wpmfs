@@ -9,7 +9,8 @@ void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   unsigned long num_used_block;
 
   /* allocate page bins, the last bin helds worn out pages */
-  sbi->num_bins = get_cell_idea_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
+  sbi->num_bins =
+      get_cell_idea_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
   sbi->block_bins = (struct list_head *)kmalloc_array(
       sbi->num_bins, sizeof(struct list_head), GFP_KERNEL);
   wpmfs_assert(sbi->block_bins);
@@ -36,6 +37,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   struct list_head *new_node;
   u64 blockoff;
   struct page *page;
+  struct list_head *pl;
 
   /* huge block is not supported */
   num_blocks = pmfs_get_numblocks(btype);
@@ -46,9 +48,10 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   /* insert the block into appropriate bin */
   target_bin = wpmfs_get_bin(sb, blocknr);
   new_node = (struct list_head *)pmfs_get_block(sb, blocknr);
-  list_add(new_node, &sbi->block_bins[target_bin]);
-  PM_TOUCH(new_node, sizeof(new_node));
-  PM_TOUCH(new_node->prev, sizeof(new_node->prev));
+  pl = &sbi->block_bins[target_bin];
+  PM_TOUCH(new_node, sizeof(*new_node));
+  if (!list_empty(pl)) PM_TOUCH(&pl->next->prev, sizeof(pl->next->prev));
+  list_add(new_node, pl);
 
   /* update statistic info */
   sbi->num_free_blocks += num_blocks;
@@ -60,7 +63,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
 }
 
 void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
-                     unsigned short btype) {  
+                     unsigned short btype) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
   mutex_lock(&sbi->s_lock);
@@ -92,10 +95,10 @@ int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
   for (cur_bin = 0; sbi->num_free_blocks && cur_bin < num_bins - 1; ++cur_bin) {
     struct list_head *lcur = &sbi->block_bins[cur_bin], *entry;
     if (list_empty(lcur)) continue;
-    entry = lcur->next;
+    entry = lcur->prev;
     list_del(lcur->next);
-    PM_TOUCH(lcur, sizeof(lcur));
-    PM_TOUCH(lcur->next, sizeof(lcur->next));
+    if (!list_empty(lcur))
+      PM_TOUCH(&lcur->prev->next, sizeof(lcur->prev->next));
 
     *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sb, lcur), 0);
     goto new_suc;
