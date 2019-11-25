@@ -35,7 +35,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   unsigned long num_blocks = 0;
   int target_bin;
   struct list_head *new_node;
-  u64 blockoff;
+  u64 blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   struct page *page;
   struct list_head *pl;
 
@@ -47,7 +47,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
 
   /* insert the block into appropriate bin */
   target_bin = wpmfs_get_bin(sb, blocknr);
-  new_node = (struct list_head *)pmfs_get_block(sb, blocknr);
+  new_node = (struct list_head *)pmfs_get_block(sb, blockoff);
   pl = &sbi->block_bins[target_bin];
   PM_TOUCH(new_node, sizeof(*new_node));
   if (!list_empty(pl)) PM_TOUCH(&pl->next->prev, sizeof(pl->next->prev));
@@ -56,9 +56,7 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   /* update statistic info */
   sbi->num_free_blocks += num_blocks;
 
-  blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
-
   wpmfs_mark_page(page, wpmfs_page_marks(page), 0);
 }
 
