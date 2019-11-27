@@ -94,11 +94,11 @@ int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
     struct list_head *lcur = &sbi->block_bins[cur_bin], *entry;
     if (list_empty(lcur)) continue;
     entry = lcur->prev;
-    list_del(lcur->next);
+    list_del(entry);
     if (!list_empty(lcur))
       PM_TOUCH(&lcur->prev->next, sizeof(lcur->prev->next));
 
-    *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sb, lcur), 0);
+    *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sb, entry), 0);
     goto new_suc;
   }
 
