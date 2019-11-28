@@ -9,6 +9,8 @@
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
+#include <asm/smp.h>
+#include <asm/tlbflush.h>
 #include "pmfs.h"
 #include "wpmfs_wt.h"
 
@@ -359,13 +361,16 @@ static pte_t *get_vmalloc_pte(unsigned long address) {
   return pte;
 }
 
+static void flush_kernel_pte(void *info) {
+  __flush_tlb_one_kernel((unsigned long)info);
+}
+
 static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   unsigned long blocknr, blockoff;
   struct page *page = pfn_to_page(pfn), *new_page;
   int errval;
   void *src_direct, *dst_direct, *src_vmap;
   pte_t *ptep, new_pte;
-  unsigned long flags;
   mptable_slot_t *mptable_slot;
   bool signal_int;
 
@@ -406,21 +411,33 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   // copy the page content
   // 此处引入了新型的页保护错误，所以我们在 page.c 中相应地添加了一条新路径
   // less likely, but necessary
-  local_irq_save(flags);
+  preempt_disable();
   set_pte_atomic(ptep, pte_wrprotect(*ptep));
-  __flush_tlb_one_kernel((unsigned long)src_vmap);
+  on_each_cpu(flush_kernel_pte, src_vmap, 1);
 
+  wpmfs_dbg_wl_vmap("src, head = %u, tail = %u.\n",
+              le32_to_cpu(*(__le32 *)(src_direct + 140)),
+              le32_to_cpu(*(__le32 *)(src_direct + 144)));
   memcpy_page(dst_direct, src_direct, false);
   PM_EQU_NO_INT(mptable_slot->blocknr, cpu_to_le64(blocknr), signal_int);
   pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
                     true);
+  wpmfs_dbg_wl_vmap("src, head = %u, tail = %u.\n",
+              le32_to_cpu(*(__le32 *)(src_direct + 140)),
+              le32_to_cpu(*(__le32 *)(src_direct + 144)));
+  wpmfs_dbg_wl_vmap("dst, head = %u, tail = %u.\n",
+              le32_to_cpu(*(__le32 *)(dst_direct + 140)),
+              le32_to_cpu(*(__le32 *)(dst_direct + 144)));
 
   new_pte = pte_mkwrite(new_pte);
   set_pte_atomic(ptep, new_pte);
-  __flush_tlb_one_kernel((unsigned long)src_vmap);
-  local_irq_restore(flags);
+  on_each_cpu(flush_kernel_pte, src_vmap, 1);
+  preempt_enable();
 
   pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
+
+  wpmfs_dbg_wl_vmap("Migration(Case Vmap) succeed. %px: %px -> %px. cpu: %d\n",
+                    src_vmap, src_direct, dst_direct, raw_smp_processor_id());
 
   // 检查 mptable 是否需要进行损耗均衡
   // 目前只有 kworker 单线程地使用 mptable，因此无需做并发控制
@@ -441,8 +458,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
         wpmfs_error("Migration(Case Vmap) failed. Memory exhausted.\n");
         return;
       }
-      blockoff =
-          pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+      blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
       dst_direct = pmfs_get_block(sb, blockoff);
 
       memcpy_page(dst_direct, src_direct, true);
