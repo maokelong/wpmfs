@@ -68,7 +68,8 @@ extern bool wpmfs_get_fs_wear(unsigned long blocknr, u64* wear_times);
 
 extern void fs_now_ready(struct block_device* fs_bdev);
 extern void wpmfs_set_wl_switch(int wlsw);
-extern int wpmfs_init(struct super_block* sb, u64* reserved_memory_size);
+extern int wpmfs_init_hard(struct super_block* sb, u64* reserved_memory_size);
+extern int wpmfs_init_soft(struct super_block* sb);
 extern void wpmfs_exit(struct super_block* sb);
 
 extern void wpmfs_print_wl_switch(struct super_block* sb);

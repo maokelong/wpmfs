@@ -447,8 +447,8 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 		* 是因为恰好在这里计算好了静态区域的大小。
 		*/
 	reserved_size = journal_data_start + sbi->jsize;
-	if (wpmfs_init(sb, &reserved_size)) {
-		wpmfs_error("Init failed.\n");
+	if (wpmfs_init_hard(sb, &reserved_size)) {
+		wpmfs_error("Hard init failed.\n");
 		return ERR_PTR(-EPERM);
 	}
 
@@ -706,7 +706,6 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	atomic_set(&sbi->next_generation, random);
 
 	/* Init with default values */
-	INIT_LIST_HEAD(&sbi->block_inuse_head);
 	sbi->mode = (S_IRUGO | S_IXUGO | S_IWUSR);
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
@@ -733,11 +732,14 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto setup_sb;
 	}
 
-	//TODO: It's not currently supported to init a existing fs instance.
-	// fix me later. 
-	wpmfs_assert(0);
 	pmfs_dbg_verbose("checking physical address 0x%016llx for pmfs image\n",
 		  (u64)sbi->phys_addr);
+
+	retval = wpmfs_init_soft(sb);
+	if (retval) {
+		wpmfs_error("Soft init failed.\n");
+		goto out;
+	}
 
 	super = pmfs_get_super(sb);
 
@@ -935,8 +937,6 @@ restore_opt:
 static void pmfs_put_super(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	struct pmfs_blocknode *i;
-	struct list_head *head = &(sbi->block_inuse_head);
 
 #ifdef CONFIG_PMFS_TEST
 	if (first_pmfs_super == sbi->virt_addr)
@@ -945,16 +945,8 @@ static void pmfs_put_super(struct super_block *sb)
 
 	/* It's unmount time, so unmap the pmfs memory */
 	if (sbi->virt_addr) {
-		pmfs_save_blocknode_mappings(sb);
 		pmfs_journal_uninit(sb);
 		sbi->virt_addr = NULL;
-	}
-
-	/* Free all the pmfs_blocknodes */
-	while (!list_empty(head)) {
-		i = list_first_entry(head, struct pmfs_blocknode, link);
-		list_del(&i->link);
-		pmfs_free_blocknode(sb, i);
 	}
 
 	/* 清理 wpmfs 申请的资源 */

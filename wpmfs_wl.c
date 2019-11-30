@@ -1,4 +1,6 @@
 #include "wpmfs_wl.h"
+#include <asm/smp.h>
+#include <asm/tlbflush.h>
 #include <linux/dax.h>
 #include <linux/kallsyms.h>
 #include <linux/kernel.h>
@@ -9,8 +11,6 @@
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
-#include <asm/smp.h>
-#include <asm/tlbflush.h>
 #include "pmfs.h"
 #include "wpmfs_wt.h"
 
@@ -416,18 +416,18 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   on_each_cpu(flush_kernel_pte, src_vmap, 1);
 
   wpmfs_dbg_wl_vmap("src, head = %u, tail = %u.\n",
-              le32_to_cpu(*(__le32 *)(src_direct + 140)),
-              le32_to_cpu(*(__le32 *)(src_direct + 144)));
+                    le32_to_cpu(*(__le32 *)(src_direct + 140)),
+                    le32_to_cpu(*(__le32 *)(src_direct + 144)));
   memcpy_page(dst_direct, src_direct, false);
   PM_EQU_NO_INT(mptable_slot->blocknr, cpu_to_le64(blocknr), signal_int);
   pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
                     true);
   wpmfs_dbg_wl_vmap("src, head = %u, tail = %u.\n",
-              le32_to_cpu(*(__le32 *)(src_direct + 140)),
-              le32_to_cpu(*(__le32 *)(src_direct + 144)));
+                    le32_to_cpu(*(__le32 *)(src_direct + 140)),
+                    le32_to_cpu(*(__le32 *)(src_direct + 144)));
   wpmfs_dbg_wl_vmap("dst, head = %u, tail = %u.\n",
-              le32_to_cpu(*(__le32 *)(dst_direct + 140)),
-              le32_to_cpu(*(__le32 *)(dst_direct + 144)));
+                    le32_to_cpu(*(__le32 *)(dst_direct + 140)),
+                    le32_to_cpu(*(__le32 *)(dst_direct + 144)));
 
   new_pte = pte_mkwrite(new_pte);
   set_pte_atomic(ptep, new_pte);
@@ -547,7 +547,7 @@ static int _init_int(struct super_block *sb) {
 
   // TODO: to enable multithread wear-leveling in the future.
   /* Create a workqueue to avoid causing delays for other queue users. */
-  _int_ctrl.workqueue = create_singlethread_workqueue("my_workqueue");
+  _int_ctrl.workqueue = create_singlethread_workqueue("wpmfs_wear_leveling");
   if (!_int_ctrl.workqueue) {
     wpmfs_error("Cannot create workqueue\n");
     return -ENOMEM;
@@ -558,9 +558,8 @@ static int _init_int(struct super_block *sb) {
   return rc;
 }
 
-static int _init_mem(struct super_block *sb, u64 *reserved_memory_size) {
+static int _init_mem_hard(struct super_block *sb, u64 *reserved_memory_size) {
   // 加载预分配内存
-  // TODO: 目前只支持硬重启
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   struct wpmfs_mptable_meta *pvmap = wpmfs_get_mptable_meta(sb);
   struct page **ppages;
@@ -661,16 +660,78 @@ static bool _check_congfigs(void) {
   return true;
 }
 
-int wpmfs_init(struct super_block *sb, u64 *reserved_memory_size) {
+int wpmfs_init_hard(struct super_block *sb, u64 *reserved_memory_size) {
   // TODO: to replace pmfs_init
-  // TODO: when not to init a new fs instance
   int errno;
   if (!_check_congfigs()) return -1;
   if (!_borrow_symbols()) return -1;
 
   wpmfs_init_all_cnter();
   if ((errno = _init_int(sb)) != 0) return errno;
-  if ((errno = _init_mem(sb, reserved_memory_size)) != 0) return errno;
+  if ((errno = _init_mem_hard(sb, reserved_memory_size)) != 0) return errno;
+
+  return 0;
+}
+
+static int _init_mem_soft(struct super_block *sb) {
+  // 加载预分配内存
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct wpmfs_mptable_meta *pvmap = wpmfs_get_mptable_meta(sb);
+  struct page **ppages;
+  void *vmaddr;
+  u64 num_m4m_slots, cur_m4m_slot, cur_mptable_slot;
+  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
+  int ret;
+  m4m_slot_t *m4m_base;
+
+  // 同时登记映射到 vmalloc space 的页
+  ppages = (struct page **)kmalloc_array(pvmap->num_prealloc_pages,
+                                         sizeof(struct page *), GFP_KERNEL);
+  if (!ppages) goto out_nomem;
+
+  m4m_base = wpmfs_get_m4m(sb, &num_m4m_slots);
+  for (cur_m4m_slot = 0; cur_m4m_slot < num_m4m_slots; ++cur_m4m_slot) {
+    u64 frag_blocknr = le64_to_cpu(m4m_base[cur_m4m_slot].frag_blocknr);
+    u64 frag_blockoff = pmfs_get_block_off(sb, frag_blocknr, 0);
+    mptable_slot_t *frag_base =
+        (mptable_slot_t *)pmfs_get_block(sb, frag_blockoff);
+
+    for (cur_mptable_slot = 0; cur_mptable_slot < frag_mptable_slots();
+         ++cur_mptable_slot) {
+      pgoff_t index = cur_m4m_slot * frag_mptable_slots() + cur_mptable_slot;
+      u64 blocknr = le64_to_cpu(frag_base[cur_mptable_slot].blocknr);
+      struct page *page = pfn_to_page(pfn0 + blocknr);
+
+      if (unlikely(index >= pvmap->num_prealloc_pages)) break;
+      ppages[index] = page;
+      wpmfs_mark_page(page, wpmfs_page_marks(page),
+                      WPMFS_PAGE_VMAP | WPMFS_PAGE_USING);
+      page->index = index;
+    }
+  }
+
+  // map given pages to vmalloc space through vmap
+  vmaddr = vmap(ppages, pvmap->num_prealloc_pages, VM_MAP, PAGE_KERNEL);
+  kfree(ppages);
+  if (!vmaddr) goto out_nomem;
+  sbi->vmapi.base = vmaddr;
+  sbi->vmapi.size = pvmap->num_prealloc_pages * PAGE_SIZE;
+
+  ret = 0;
+  return ret;
+
+out_nomem:
+  ret = -ENOMEM;
+  return ret;
+}
+
+int wpmfs_init_soft(struct super_block *sb) {
+  int errno;
+  if (!_check_congfigs()) return -1;
+  if (!_borrow_symbols()) return -1;
+
+  if ((errno = _init_int(sb)) != 0) return errno;
+  if ((errno = _init_mem_soft(sb)) != 0) return errno;
 
   return 0;
 }
@@ -697,8 +758,6 @@ void wpmfs_exit(struct super_block *sb) {
 }
 
 void wpmfs_print_wl_switch(struct super_block *sb) {
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-
   if (!_int_ctrl.wl_switch) {
     pmfs_info("Wear-leveling mechanism: Disabled.\n");
     return;

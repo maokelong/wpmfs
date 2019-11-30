@@ -42,20 +42,6 @@ static inline uint64_t get_cell_idea_endurance(void) {
 }
 
 /*************************************************
- * file suffering threshold
- *************************************************/
-
-// TODO: choose suitable configs for me
-#define FILE_UPDATE_THRESHOLD_POWER (INTERRUPT_THRESHOLD_POWER)
-
-static inline uint64_t get_file_update_thes_val(void) {
-  return 1 << FILE_UPDATE_THRESHOLD_POWER;
-}
-static inline uint64_t get_file_update_thes_mask(void) {
-  return ~(get_file_update_thes_val() - 1);
-}
-
-/*************************************************
  * per-page write-tracking counters (counter file)
  *************************************************/
 
