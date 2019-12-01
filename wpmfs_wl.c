@@ -679,10 +679,11 @@ static int _init_mem_soft(struct super_block *sb) {
   struct wpmfs_mptable_meta *pvmap = wpmfs_get_mptable_meta(sb);
   struct page **ppages;
   void *vmaddr;
-  u64 num_m4m_slots, cur_m4m_slot, cur_mptable_slot;
+  u64 num_m4m_slots, cur_m4m_page, cur_m4m_slot, cur_mptable_slot;
   unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
   int ret;
   m4m_slot_t *m4m_base;
+  int m4m_pages;
 
   // 同时登记映射到 vmalloc space 的页
   ppages = (struct page **)kmalloc_array(pvmap->num_prealloc_pages,
@@ -690,12 +691,27 @@ static int _init_mem_soft(struct super_block *sb) {
   if (!ppages) goto out_nomem;
 
   m4m_base = wpmfs_get_m4m(sb, &num_m4m_slots);
+  m4m_pages = (round_up((unsigned long)(m4m_base + num_m4m_slots), PAGE_SIZE) -
+               round_down((unsigned long)m4m_base, PAGE_SIZE)) /
+              PAGE_SIZE;
+
+  // mark m4m pages using
+  for (cur_m4m_page = 0; cur_m4m_page < m4m_pages; ++cur_m4m_page) {
+    unsigned long pfn = (virt_to_phys(m4m_base) >> PAGE_SHIFT) + cur_m4m_page;
+    struct page *page = pfn_to_page(pfn);
+    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
+  }
+
+  // bookkeeping vmap pages
   for (cur_m4m_slot = 0; cur_m4m_slot < num_m4m_slots; ++cur_m4m_slot) {
     u64 frag_blocknr = le64_to_cpu(m4m_base[cur_m4m_slot].frag_blocknr);
     u64 frag_blockoff = pmfs_get_block_off(sb, frag_blocknr, 0);
     mptable_slot_t *frag_base =
         (mptable_slot_t *)pmfs_get_block(sb, frag_blockoff);
+    struct page *frag_page = pfn_to_page(virt_to_phys(frag_base) >> PAGE_SHIFT);
 
+    // mark mptable pages using
+    wpmfs_mark_page(frag_page, wpmfs_page_marks(frag_page), WPMFS_PAGE_USING);
     for (cur_mptable_slot = 0; cur_mptable_slot < frag_mptable_slots();
          ++cur_mptable_slot) {
       pgoff_t index = cur_m4m_slot * frag_mptable_slots() + cur_mptable_slot;

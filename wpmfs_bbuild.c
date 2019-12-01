@@ -109,7 +109,7 @@ static void wpmfs_try_free_blocks(struct super_block *sb, unsigned long low,
   unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
 
   for (; low < high; ++low)
-    if (!(wpmfs_page_marks(pfn_to_page(low + pfn0)) & WPMFS_DBGMASK_WL_VMAP)) {
+    if (!(wpmfs_page_marks(pfn_to_page(low + pfn0)) & WPMFS_PAGE_USING)) {
       __pmfs_free_block(sb, low, PMFS_BLOCK_TYPE_4K, NULL);
 			sbi->num_free_blocks++;
 		}
@@ -150,7 +150,6 @@ int pmfs_setup_blocknode_map(struct super_block *sb)
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct scan_bitmap bm;
 	unsigned long initsize = le64_to_cpu(super->s_size);
-	bool value = false;
 	timing_t start, end;
 
 	/* Always check recovery time */
@@ -193,7 +192,6 @@ int pmfs_setup_blocknode_map(struct super_block *sb)
 skip:
 	
 	kfree(bm.bitmap_4k);
-end:
 	PMFS_END_TIMING(recovery_t, start);
 	if (measure_timing == 0) {
 		getrawmonotonic(&end);
