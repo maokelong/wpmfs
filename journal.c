@@ -291,7 +291,8 @@ static uint32_t pmfs_process_transaction(struct super_block *sb, uint32_t head,
 			break;
 		}
 		/* next log entry */
-		le++;
+		le = next_log_entry(sbi->jsize, (void *)le - sbi->journal_base_addr) + \
+				(void *)sbi->journal_base_addr;
 		/* Handle uncommitted transactions */
 		if ((new_head == tail) || ((gen_id == le16_to_cpu(le->gen_id))
 			    && (le->type & LE_START))) {
