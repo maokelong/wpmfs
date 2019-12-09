@@ -572,7 +572,9 @@ static int _init_mem_hard(struct super_block *sb, u64 *reserved_memory_size) {
   m4m_slot_t *m4m_slot;
   mptable_slot_t *mptable;
   u64 prealloc_memory_size = *reserved_memory_size;
+  INIT_TIMING(setup_vmap_time);
 
+  PMFS_START_TIMING(setup_vmap_t, setup_vmap_time);
   // 计算映射表相关属性
   prealloc_memory_size = (prealloc_memory_size + (PAGE_SIZE - 1)) & PAGE_MASK;
   prealloc_memory_pages = prealloc_memory_size >> PAGE_SHIFT;
@@ -598,8 +600,8 @@ static int _init_mem_hard(struct super_block *sb, u64 *reserved_memory_size) {
 
   // 填充 pgtable slots，prealloc pages 紧随 pgtable
   // 同时登记映射到 vmalloc space 的页
-  ppages = (struct page **)kmalloc_array(prealloc_memory_pages,
-                                         sizeof(struct page *), GFP_KERNEL);
+  ppages =
+      (struct page **)vmalloc(prealloc_memory_pages * sizeof(struct page *));
   if (!ppages) goto out_nomem;
 
   mptable = (mptable_slot_t *)((u8 *)pvmap + m4m_size);
@@ -620,10 +622,11 @@ static int _init_mem_hard(struct super_block *sb, u64 *reserved_memory_size) {
 
   // map given pages to vmalloc space through vmap
   vmaddr = vmap(ppages, prealloc_memory_pages, VM_MAP, PAGE_KERNEL);
-  kfree(ppages);
+  vfree(ppages);
   if (!vmaddr) goto out_nomem;
   sbi->vmapi.base = vmaddr;
   sbi->vmapi.size = *reserved_memory_size;
+  PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
 
   *reserved_memory_size = *reserved_memory_size + map_size + m4m_size;
 
@@ -684,10 +687,12 @@ static int _init_mem_soft(struct super_block *sb) {
   int ret;
   m4m_slot_t *m4m_base;
   int m4m_pages;
+  INIT_TIMING(setup_vmap_time);
 
   // 同时登记映射到 vmalloc space 的页
-  ppages = (struct page **)kmalloc_array(pvmap->num_prealloc_pages,
-                                         sizeof(struct page *), GFP_KERNEL);
+  PMFS_START_TIMING(setup_vmap_t, setup_vmap_time);
+  ppages = (struct page **)vmalloc(pvmap->num_prealloc_pages *
+                                   sizeof(struct page *));
   if (!ppages) goto out_nomem;
 
   m4m_base = wpmfs_get_m4m(sb, &num_m4m_slots);
@@ -728,10 +733,11 @@ static int _init_mem_soft(struct super_block *sb) {
 
   // map given pages to vmalloc space through vmap
   vmaddr = vmap(ppages, pvmap->num_prealloc_pages, VM_MAP, PAGE_KERNEL);
-  kfree(ppages);
+  vfree(ppages);
   if (!vmaddr) goto out_nomem;
   sbi->vmapi.base = vmaddr;
   sbi->vmapi.size = pvmap->num_prealloc_pages * PAGE_SIZE;
+  PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
 
   ret = 0;
   return ret;
@@ -805,7 +811,7 @@ void wpmfs_print_memory_layout(struct super_block *sb,
 
   pmfs_info("The memory layout of wpmfs:\n");
 
-  pmfs_info("Memory reserved on total: %lu.\n", reserved_size);
+  pmfs_info("Memory reserved: %lu.\n", reserved_size);
   pmfs_info("Memory reserved for prealloc pages: %llu.\n", sbi->vmapi.size);
 
   wpmfs_assert(is_vmalloc_addr(super));

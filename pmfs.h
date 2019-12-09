@@ -174,6 +174,7 @@ enum timing_category {
 	free_tree_t,
 	evict_inode_t,
 	recovery_t,
+	setup_vmap_t,
 	TIMING_NUM,
 };
 
