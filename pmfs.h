@@ -216,18 +216,35 @@ extern void pmfs_error_mng(struct super_block *sb, const char *fmt, ...);
 extern int pmfs_mmap(struct file *file, struct vm_area_struct *vma);
 
 /* balloc.c */
-int pmfs_setup_blocknode_map(struct super_block *sb);
+struct allocator_factory {
+  unsigned long (*pmfs_count_free_blocks)(struct super_block *sb);
+  int (*pmfs_new_block)(struct super_block *sb, unsigned long *blocknr,
+                        unsigned short btype, int zero);
+  void (*pmfs_free_block)(struct super_block *sb, unsigned long blocknr,
+                          unsigned short btype);
+  void (*__pmfs_free_block)(struct super_block *sb, unsigned long blocknr,
+                            unsigned short btype, void **private);
+  void (*pmfs_init_blockmap)(struct super_block *sb,
+                             unsigned long init_used_size);
+  int (*pmfs_setup_blocknode_map)(struct super_block *sb);
+};
+extern struct allocator_factory Allocator;
+extern bool wpmfs_select_allocator(int alloc);
+
+// for wpmfs's simplest allocator
+extern int wpmfs_new_block(struct super_block *sb, unsigned long *blocknr,
+                    unsigned short btype, int zero);
+extern void wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
+                      unsigned short btype);
+extern void __wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
+                        unsigned short btype, void **private);
+extern void wpmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size);
+extern int wpmfs_setup_blocknode_map(struct super_block *sb);
+
+// for pmfs's default allocator
 extern struct pmfs_blocknode *pmfs_alloc_blocknode(struct super_block *sb);
-extern void pmfs_free_blocknode(struct super_block *sb, struct pmfs_blocknode *bnode);
-extern void pmfs_init_blockmap(struct super_block *sb,
-		unsigned long init_used_size);
-extern void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
-	unsigned short btype);
-extern void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
-	unsigned short btype, struct pmfs_blocknode **start_hint);
-extern int pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
-	unsigned short btype, int zero);
-extern unsigned long pmfs_count_free_blocks(struct super_block *sb);
+extern void pmfs_free_blocknode(struct super_block *sb,
+                                struct pmfs_blocknode *bnode);
 
 /* dir.c */
 extern int pmfs_add_entry(pmfs_transaction_t *trans,

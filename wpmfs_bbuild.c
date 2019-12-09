@@ -29,7 +29,7 @@ struct scan_bitmap {
 	unsigned long *bitmap_4k;
 };
 
-static void pmfs_inode_crawl_recursive(struct super_block *sb,
+static void wpmfs_inode_crawl_recursive(struct super_block *sb,
 				struct scan_bitmap *bm, unsigned long block,
 				u32 height, u8 btype)
 {
@@ -48,21 +48,21 @@ static void pmfs_inode_crawl_recursive(struct super_block *sb,
 	for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
 		if (node[i] == 0)
 			continue;
-		pmfs_inode_crawl_recursive(sb, bm,
+		wpmfs_inode_crawl_recursive(sb, bm,
 			le64_to_cpu(node[i]), height - 1, btype);
 	}
 }
 
-static inline void pmfs_inode_crawl(struct super_block *sb,
+static inline void wpmfs_inode_crawl(struct super_block *sb,
 				struct scan_bitmap *bm, struct pmfs_inode *pi)
 {
 	if (pi->root == 0)
 		return;
-	pmfs_inode_crawl_recursive(sb, bm, le64_to_cpu(pi->root), pi->height,
+	wpmfs_inode_crawl_recursive(sb, bm, le64_to_cpu(pi->root), pi->height,
 					pi->i_blk_type);
 }
 
-static void pmfs_inode_table_crawl_recursive(struct super_block *sb,
+static void wpmfs_inode_table_crawl_recursive(struct super_block *sb,
 				struct scan_bitmap *bm, unsigned long block,
 				u32 height, u32 btype)
 {
@@ -89,7 +89,7 @@ static void pmfs_inode_table_crawl_recursive(struct super_block *sb,
 					continue;
 			}
 			sbi->s_inodes_used_count++;
-			pmfs_inode_crawl(sb, bm, pi);
+			wpmfs_inode_crawl(sb, bm, pi);
 		}
 		return;
 	}
@@ -98,7 +98,7 @@ static void pmfs_inode_table_crawl_recursive(struct super_block *sb,
 	for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
 		if (node[i] == 0)
 			continue;
-		pmfs_inode_table_crawl_recursive(sb, bm,
+		wpmfs_inode_table_crawl_recursive(sb, bm,
 			le64_to_cpu(node[i]), height - 1, btype);
 	}
 }
@@ -110,12 +110,12 @@ static void wpmfs_try_free_blocks(struct super_block *sb, unsigned long low,
 
   for (; low < high; ++low)
     if (!(wpmfs_page_marks(pfn_to_page(low + pfn0)) & WPMFS_PAGE_USING)) {
-      __pmfs_free_block(sb, low, PMFS_BLOCK_TYPE_4K, NULL);
+      __wpmfs_free_block(sb, low, PMFS_BLOCK_TYPE_4K, NULL);
 			sbi->num_free_blocks++;
 		}
 }
 
-static int __pmfs_build_blocknode_map(struct super_block *sb,
+static int __wpmfs_build_blocknode_map(struct super_block *sb,
                                       unsigned long *bitmap,
                                       unsigned long bsize,
                                       unsigned long scale) {
@@ -136,14 +136,14 @@ static int __pmfs_build_blocknode_map(struct super_block *sb,
   return 0;
 }
 
-static void pmfs_build_blocknode_map(struct super_block *sb,
+static void wpmfs_build_blocknode_map(struct super_block *sb,
 							struct scan_bitmap *bm)
 {
-	__pmfs_build_blocknode_map(sb, bm->bitmap_4k, bm->bitmap_4k_size * 8,
+	__wpmfs_build_blocknode_map(sb, bm->bitmap_4k, bm->bitmap_4k_size * 8,
 		PAGE_SHIFT - 12);
 }
 
-int pmfs_setup_blocknode_map(struct super_block *sb)
+int wpmfs_setup_blocknode_map(struct super_block *sb)
 {
 	struct pmfs_super_block *super = pmfs_get_super(sb);
 	struct pmfs_inode *pi = pmfs_get_inode_table(sb);
@@ -171,7 +171,7 @@ int pmfs_setup_blocknode_map(struct super_block *sb)
 	if (!bm.bitmap_4k)
 		goto skip;
 	
-	pmfs_inode_table_crawl_recursive(sb, &bm, le64_to_cpu(pi->root),
+	wpmfs_inode_table_crawl_recursive(sb, &bm, le64_to_cpu(pi->root),
 						pi->height, pi->i_blk_type);
 
 	/* Reserving tow inodes - Inode 0 and Inode for datablock */
@@ -186,8 +186,8 @@ int pmfs_setup_blocknode_map(struct super_block *sb)
 
 	// Set init_used_size to initsize.
 	// wpmfs treat all blocks as allocated at first.
-	pmfs_init_blockmap(sb, initsize);
-	pmfs_build_blocknode_map(sb, &bm);
+	wpmfs_init_blockmap(sb, initsize);
+	wpmfs_build_blocknode_map(sb, &bm);
 
 skip:
 	

@@ -180,6 +180,7 @@ enum {
   Opt_tracemask,
   Opt_bs,
   Opt_wlsw,
+	Opt_alloc,
   Opt_err
 };
 
@@ -202,6 +203,7 @@ static const match_table_t tokens = {
     {Opt_tracemask, "tracemask=%u"},
     {Opt_bs, "backing_dev=%s"},
     {Opt_wlsw, "wlsw=%u"},
+    {Opt_alloc, "alloc=%u"},
     {Opt_err, NULL},
 };
 
@@ -328,6 +330,12 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			wpmfs_set_wl_switch(option);
+			break;
+		case Opt_alloc:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			if(wpmfs_select_allocator(option))
+				goto bad_val;
 			break;
 		default: {
 			goto bad_opt;
@@ -463,7 +471,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	PM_EQU(super->s_journal_offset, cpu_to_le64(journal_meta_start));
 	PM_EQU(super->s_inode_table_offset, cpu_to_le64(inode_table_start));
 
-	pmfs_init_blockmap(sb, reserved_size);
+	Allocator.pmfs_init_blockmap(sb, reserved_size);
 	pmfs_memlock_range(sb, super, journal_data_start);
 
 	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
@@ -481,7 +489,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	pmfs_flush_buffer(super, PMFS_SB_SIZE, false);
 	pmfs_flush_buffer((char *)super + PMFS_SB_SIZE, sizeof(*super), false);
 
-	pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, 1);
+	Allocator.pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, 1);
 
 	root_i = pmfs_get_inode(sb, PMFS_ROOT_INO);
 
@@ -533,6 +541,7 @@ static inline void set_default_opts(struct pmfs_sb_info *sbi)
 	set_opt(sbi->s_mount_opt, ERRORS_CONT);
 	sbi->jsize = PMFS_DEFAULT_JOURNAL_SIZE;
 	wpmfs_set_wl_switch(7);
+	wpmfs_select_allocator(0);
 }
 
 static void pmfs_root_check(struct super_block *sb, struct pmfs_inode *root_pi)
@@ -802,7 +811,7 @@ setup_sb:
 	/* If the FS was not formatted on this mount, scan the meta-data after
 	 * truncate list has been processed */
 	if ((sbi->s_mount_opt & PMFS_MOUNT_FORMAT) == 0)
-		pmfs_setup_blocknode_map(sb);
+		Allocator.pmfs_setup_blocknode_map(sb);
 
 	if (!(sb->s_flags & MS_RDONLY)) {
 		u64 mnt_write_time;
@@ -839,7 +848,7 @@ int pmfs_statfs(struct dentry *d, struct kstatfs *buf)
 
 	count = sbi->block_end;
 	buf->f_blocks = sbi->block_end;
-	buf->f_bfree = buf->f_bavail = pmfs_count_free_blocks(sb);
+	buf->f_bfree = buf->f_bavail = Allocator.pmfs_count_free_blocks(sb);
 	buf->f_files = (sbi->s_inodes_count);
 	buf->f_ffree = (sbi->s_free_inodes_count);
 	buf->f_namelen = PMFS_NAME_LEN;

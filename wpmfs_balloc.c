@@ -3,7 +3,7 @@
 #include "pmfs.h"
 #include "wpmfs_wl.h"
 
-void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
+void wpmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   int cur_bin;
   unsigned long num_used_block;
@@ -28,9 +28,8 @@ void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   sbi->num_free_blocks -= num_used_block;
 }
 
-void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
-                       unsigned short btype,
-                       struct pmfs_blocknode **start_hint) {
+void __wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
+                        unsigned short btype, void **private) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   unsigned long num_blocks = 0;
   int target_bin;
@@ -42,8 +41,9 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   /* huge block is not supported */
   num_blocks = pmfs_get_numblocks(btype);
   wpmfs_assert(num_blocks == 1);
-  /* start_hint should never been used here */
-  wpmfs_assert(start_hint == NULL || *start_hint == NULL);
+  /* private(start_hint) should never been used here */
+  wpmfs_assert(private == NULL ||
+               *(struct pmfs_blocknode **)private == NULL);
 
   /* insert the block into appropriate bin */
   target_bin = wpmfs_get_bin(sb, blocknr);
@@ -60,17 +60,17 @@ void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
   wpmfs_mark_page(page, wpmfs_page_marks(page), 0);
 }
 
-void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
-                     unsigned short btype) {
+void wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
+                      unsigned short btype) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
   mutex_lock(&sbi->s_lock);
-  __pmfs_free_block(sb, blocknr, btype, NULL);
+  __wpmfs_free_block(sb, blocknr, btype, NULL);
   mutex_unlock(&sbi->s_lock);
 }
 
-int _pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
-                    unsigned short btype, int zero) {
+int __wpmfs_new_block(struct super_block *sb, unsigned long *blocknr,
+                      unsigned short btype, int zero) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   int cur_bin, num_bins = sbi->num_bins;
   int errval = 0;
@@ -122,17 +122,48 @@ new_fail:
   return errval;
 }
 
-int pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
-                   unsigned short btype, int zero) {
+int wpmfs_new_block(struct super_block *sb, unsigned long *blocknr,
+                    unsigned short btype, int zero) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   int errval = 0;
   mutex_lock(&sbi->s_lock);
-  errval = _pmfs_new_block(sb, blocknr, btype, zero);
+  errval = __wpmfs_new_block(sb, blocknr, btype, zero);
   mutex_unlock(&sbi->s_lock);
   return errval;
 }
 
-unsigned long pmfs_count_free_blocks(struct super_block *sb) {
+unsigned long wpmfs_count_free_blocks(struct super_block *sb) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   return sbi->num_free_blocks;
+}
+
+struct allocator_factory Allocator = {.pmfs_new_block = NULL,
+                                      .pmfs_free_block = NULL,
+                                      .__pmfs_free_block = NULL,
+                                      .pmfs_init_blockmap = NULL,
+                                      .pmfs_setup_blocknode_map = NULL};
+
+bool wpmfs_select_allocator(int alloc) {
+  switch (alloc) {
+    case 0:
+      // simples allocator that allocates pages suffered minimal writes
+      Allocator.pmfs_count_free_blocks = wpmfs_count_free_blocks;
+      Allocator.pmfs_new_block = wpmfs_new_block;
+      Allocator.pmfs_free_block = wpmfs_free_block;
+      Allocator.__pmfs_free_block = __wpmfs_free_block;
+      Allocator.pmfs_init_blockmap = wpmfs_init_blockmap;
+      Allocator.pmfs_setup_blocknode_map = wpmfs_setup_blocknode_map;
+      break;
+
+    case 1:
+      // pmfs's default allocator
+      wpmfs_assert(0);  // TODO
+      break;
+
+    default:
+      wpmfs_error("Invalid allocator.\n");
+      return false;
+  }
+
+  return true;
 }

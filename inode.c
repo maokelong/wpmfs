@@ -39,7 +39,7 @@ static int pmfs_new_data_block(struct super_block *sb, struct pmfs_inode *pi,
 {
 	unsigned int data_bits = blk_type_to_shift[pi->i_blk_type];
 
-	int errval = pmfs_new_block(sb, blocknr, pi->i_blk_type, zero);
+	int errval = Allocator.pmfs_new_block(sb, blocknr, pi->i_blk_type, zero);
 
 	if (!errval) {
 		pmfs_memunlock_inode(sb, pi);
@@ -269,7 +269,7 @@ static int recursive_truncate_blocks(struct super_block *sb, __le64 block,
 			/* Freeing the data block */
 			blocknr = pmfs_get_blocknr(sb, le64_to_cpu(node[i]),
 				    btype);
-			__pmfs_free_block(sb, blocknr, btype, &start_hint);
+			Allocator.__pmfs_free_block(sb, blocknr, btype, (void **)&start_hint);
 			freed++;
 		}
 		mutex_unlock(&sbi->s_lock);
@@ -290,7 +290,7 @@ static int recursive_truncate_blocks(struct super_block *sb, __le64 block,
 				/* Freeing the meta-data block */
 				blocknr = pmfs_get_blocknr(sb, le64_to_cpu(
 					    node[i]), PMFS_BLOCK_TYPE_4K);
-				pmfs_free_block(sb, blocknr,PMFS_BLOCK_TYPE_4K);
+				Allocator.pmfs_free_block(sb, blocknr,PMFS_BLOCK_TYPE_4K);
 			} else {
 				if (i == first_index)
 				    start++;
@@ -332,7 +332,7 @@ unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 	if (height == 0) {
 		first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
 			btype);
-		pmfs_free_block(sb, first_blocknr, btype);
+		Allocator.pmfs_free_block(sb, first_blocknr, btype);
 		freed = 1;
 	} else {
 		first_blocknr = 0;
@@ -342,7 +342,7 @@ unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 		BUG_ON(!mpty);
 		first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
 			PMFS_BLOCK_TYPE_4K);
-		pmfs_free_block(sb, first_blocknr,PMFS_BLOCK_TYPE_4K);
+		Allocator.pmfs_free_block(sb, first_blocknr,PMFS_BLOCK_TYPE_4K);
 	}
 	PMFS_END_TIMING(free_tree_t, free_time);
 	return freed;
@@ -377,7 +377,7 @@ static void pmfs_decrease_btree_height(struct super_block *sb,
 		blocknr = pmfs_get_blocknr(sb, le64_to_cpu(newroot),
 			PMFS_BLOCK_TYPE_4K);
 		newroot = root[0];
-		pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+		Allocator.pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
 		height--;
 	}
 update_root_and_height:
@@ -476,7 +476,7 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 	if (pi->height == 0) {
 		first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
 			pi->i_blk_type);
-		pmfs_free_block(sb, first_blocknr, pi->i_blk_type);
+		Allocator.pmfs_free_block(sb, first_blocknr, pi->i_blk_type);
 		root = 0;
 		freed = 1;
 	} else {
@@ -485,7 +485,7 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 		if (mpty) {
 			first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
 				PMFS_BLOCK_TYPE_4K);
-			pmfs_free_block(sb, first_blocknr, PMFS_BLOCK_TYPE_4K);
+			Allocator.pmfs_free_block(sb, first_blocknr, PMFS_BLOCK_TYPE_4K);
 			root = 0;
 		}
 	}
@@ -530,7 +530,7 @@ static int pmfs_increase_btree_height(struct super_block *sb,
 	pmfs_dbg_verbose("increasing tree height %x:%x\n", height, new_height);
 	while (height < new_height) {
 		/* allocate the meta block */
-		errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, 1);
+		errval = Allocator.pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, 1);
 		if (errval) {
 			pmfs_err(sb, "failed to increase btree height\n");
 			break;
@@ -611,7 +611,7 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 		} else {
 			if (node[i] == 0) {
 				/* allocate the meta block */
-				errval = pmfs_new_block(sb, &blocknr,
+				errval = Allocator.pmfs_new_block(sb, &blocknr,
 						PMFS_BLOCK_TYPE_4K, 1);
 				if (errval) {
 					pmfs_dbg_verbose("alloc meta blk"
@@ -1640,7 +1640,7 @@ u64 wpmfs_replace_tired_page(struct super_block *sb, __le64 *blk_index) {
   u64 tmp_blockoff;
 
   // allocate a new page
-  errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+  errval = Allocator.pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
   if (errval == -ENOMEM) {
     wpmfs_error("Migration(Case Stranded) failed. Memory exhausted.\n");
     return 0;

@@ -288,7 +288,7 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
 
   mutex_unlock(&PMFS_SB(sb)->inode_table_mutex);
 
-  errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+  errval = Allocator.pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
   if (errval == -ENOMEM) {
     wpmfs_error("Migration(Case Rmap) failed. Memory exhausted.\n");
     iput(inode);
@@ -307,11 +307,11 @@ static void _level_type_rmap(struct super_block *sb, unsigned long pfn) {
     inode_unlock_shared(inode);
     iput(inode);
 
-    pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+    Allocator.pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
     return;
   } else {
     blocknr = wpmfs_get_blocknr(sb, pfn);
-    pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+    Allocator.pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
   }
 
   inode_unlock_shared(inode);
@@ -381,7 +381,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   src_direct = pmfs_get_block(sb, blockoff);
 
   // 分配新页，新页暂未映射到 vmalloc space，因此只能使用直接映射区的地址
-  errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+  errval = Allocator.pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
   if (errval == -ENOMEM) {
     wpmfs_error("Migration(Case Vmap) failed. Memory exhausted.\n");
     return;
@@ -399,7 +399,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   ptep = get_vmalloc_pte((unsigned long)src_vmap);
   if (!ptep) {
     wpmfs_error("Failed to get ptep.\n");
-    pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
+    Allocator.pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
     return;
   }
 
@@ -434,7 +434,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   on_each_cpu(flush_kernel_pte, src_vmap, 1);
   preempt_enable();
 
-  pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
+  Allocator.pmfs_free_block(sb, wpmfs_get_blocknr(sb, pfn), PMFS_BLOCK_TYPE_4K);
 
   wpmfs_dbg_wl_vmap("Migration(Case Vmap) succeed. %px: %px -> %px. cpu: %d\n",
                     src_vmap, src_direct, dst_direct, raw_smp_processor_id());
@@ -453,7 +453,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
       src_direct = pmfs_get_block(sb, blockoff);
 
       // 分配新页，新页暂未映射到 vmalloc space，因此只能使用直接映射区的地址
-      errval = pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
+      errval = Allocator.pmfs_new_block(sb, &blocknr, PMFS_BLOCK_TYPE_4K, false);
       if (errval == -ENOMEM) {
         wpmfs_error("Migration(Case Vmap) failed. Memory exhausted.\n");
         return;
