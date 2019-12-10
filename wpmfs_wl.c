@@ -828,11 +828,6 @@ void wpmfs_print_memory_layout(struct super_block *sb,
             cpu_to_le32(journal_meta->size));
 
   pmfs_info("datablks - starts at 0x%px.\n", pdatablk);
-  datablk_off =
-      pmfs_get_block_off(sb, sbi->unused_block_low, PMFS_BLOCK_TYPE_4K);
-  pdatablk = pmfs_get_block(sb, datablk_off);
-  pmfs_info("datablks - currently first free at 0x%px, total free cnts %lu.\n",
-            pdatablk, sbi->num_free_blocks);
 }
 
 u64 wpmfs_get_capacity(void) {

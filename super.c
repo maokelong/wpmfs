@@ -715,6 +715,7 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	atomic_set(&sbi->next_generation, random);
 
 	/* Init with default values */
+	INIT_LIST_HEAD(&sbi->block_inuse_head);
 	sbi->mode = (S_IRUGO | S_IXUGO | S_IWUSR);
 	sbi->uid = current_fsuid();
 	sbi->gid = current_fsgid();
@@ -946,6 +947,8 @@ restore_opt:
 static void pmfs_put_super(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	struct pmfs_blocknode *i;
+	struct list_head *head = &(sbi->block_inuse_head);
 
 #ifdef CONFIG_PMFS_TEST
 	if (first_pmfs_super == sbi->virt_addr)
@@ -956,6 +959,13 @@ static void pmfs_put_super(struct super_block *sb)
 	if (sbi->virt_addr) {
 		pmfs_journal_uninit(sb);
 		sbi->virt_addr = NULL;
+	}
+
+	/* Free all the pmfs_blocknodes */
+	while (!list_empty(head)) {
+		i = list_first_entry(head, struct pmfs_blocknode, link);
+		list_del(&i->link);
+		pmfs_free_blocknode(sb, i);
 	}
 
 	/* 清理 wpmfs 申请的资源 */

@@ -410,12 +410,12 @@ bool wpmfs_select_allocator(int alloc) {
       break;
 
     case 1:
-      Allocator.pmfs_count_free_blocks = wpmfs_count_free_blocks;
-      Allocator.pmfs_new_block = wpmfs_new_block;
-      Allocator.pmfs_free_block = wpmfs_free_block;
-      Allocator.__pmfs_free_block = __wpmfs_free_block;
-      Allocator.pmfs_init_blockmap = wpmfs_init_blockmap;
-      Allocator.pmfs_setup_blocknode_map = wpmfs_setup_blocknode_map;
+      Allocator.pmfs_count_free_blocks = pmfs_count_free_blocks;
+      Allocator.pmfs_new_block = pmfs_new_block;
+      Allocator.pmfs_free_block = pmfs_free_block;
+      Allocator.__pmfs_free_block = __pmfs_free_block;
+      Allocator.pmfs_init_blockmap = pmfs_init_blockmap;
+      Allocator.pmfs_setup_blocknode_map = pmfs_setup_blocknode_map;
       break;
 
     default:
