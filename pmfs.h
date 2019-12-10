@@ -242,6 +242,16 @@ extern void wpmfs_init_blockmap(struct super_block *sb, unsigned long init_used_
 extern int wpmfs_setup_blocknode_map(struct super_block *sb);
 
 // for pmfs's default allocator
+extern int pmfs_new_block(struct super_block *sb, unsigned long *blocknr,
+                          unsigned short btype, int zero);
+extern void pmfs_free_block(struct super_block *sb, unsigned long blocknr,
+                            unsigned short btype);
+extern void __pmfs_free_block(struct super_block *sb, unsigned long blocknr,
+                              unsigned short btype, void **private);
+extern void pmfs_init_blockmap(struct super_block *sb,
+                               unsigned long init_used_size);
+extern int pmfs_setup_blocknode_map(struct super_block *sb);
+extern void pmfs_save_blocknode_mappings(struct super_block *sb);
 extern struct pmfs_blocknode *pmfs_alloc_blocknode(struct super_block *sb);
 extern void pmfs_free_blocknode(struct super_block *sb,
                                 struct pmfs_blocknode *bnode);

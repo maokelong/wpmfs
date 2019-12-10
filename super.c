@@ -334,7 +334,7 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 		case Opt_alloc:
 			if (match_int(&args[0], &option))
 				goto bad_val;
-			if(wpmfs_select_allocator(option))
+			if (!wpmfs_select_allocator(option))
 				goto bad_val;
 			break;
 		default: {
