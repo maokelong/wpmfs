@@ -431,7 +431,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 		new_eblk = true;
 	
 	/* don't zero-out the allocated blocks */
-	pmfs_alloc_blocks(trans, inode, start_blk, num_blocks, false);
+	pmfs_alloc_blocks(trans, inode, start_blk, num_blocks, false, 0);
 
 	/* now zero out the edge blocks which will be partially written */
 	pmfs_clear_edge_blk(sb, pi, new_sblk, start_blk, offset, false);
@@ -470,7 +470,7 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode, sector_t iblock,
 		pi = pmfs_get_inode(sb, inode->i_ino);
 		trans = pmfs_current_transaction();
 		if (trans) {
-			err = pmfs_alloc_blocks(trans, inode, iblock, 1, true);
+			err = pmfs_alloc_blocks(trans, inode, iblock, 1, true, 0);
 			if (err) {
 				pmfs_dbg_verbose("[%s:%d] Alloc failed!\n",
 					__func__, __LINE__);
@@ -489,7 +489,7 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode, sector_t iblock,
 
 			pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY,
 				LE_DATA);
-			err = pmfs_alloc_blocks(trans, inode, iblock, 1, true);
+			err = pmfs_alloc_blocks(trans, inode, iblock, 1, true, 0);
 
 			pmfs_commit_transaction(sb, trans);
 

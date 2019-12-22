@@ -102,7 +102,7 @@ int __wpmfs_new_block(struct super_block *sb, unsigned long *blocknr,
     if (!list_empty(lcur))
       PM_TOUCH(&lcur->prev->next, sizeof(lcur->prev->next));
 
-    *blocknr = pmfs_get_blocknr(sb, pmfs_get_addr_off(sb, entry), 0);
+    *blocknr = pmfs_get_blocknr(sb, wpmfs_reget_blockoff(sb, entry), 0);
     goto new_suc;
   }
 

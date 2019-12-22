@@ -77,7 +77,7 @@ u64 pmfs_find_data_block(struct inode *inode, unsigned long file_blocknr)
 	bp = __pmfs_find_data_block(sb, pi, blocknr);
 	pmfs_dbg1("find_data_block %lx, %x %llx blk_p %px blk_shift %x"
 		" blk_offset %lx\n", file_blocknr, pi->height, bp,
-		pmfs_get_block(sb, bp), blk_shift, blk_offset);
+		wpmfs_get_block(sb, bp), blk_shift, blk_offset);
 
 	if (bp == 0)
 		return 0;
@@ -109,7 +109,7 @@ static int recursive_find_region(struct super_block *sb, __le64 block,
 	first_index = first_blocknr >> node_bits;
 	last_index = last_blocknr >> node_bits;
 
-	node = pmfs_get_block(sb, le64_to_cpu(block));
+	node = wpmfs_get_block(sb, le64_to_cpu(block));
 
 	for (i = first_index; i <= last_index; i++) {
 		if (height == 1 || node[i] == 0) {
@@ -253,7 +253,7 @@ static int recursive_truncate_blocks(struct super_block *sb, __le64 block,
 	bool mpty, all_range_freed = true;
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-	node = pmfs_get_block(sb, le64_to_cpu(block));
+	node = wpmfs_get_block(sb, le64_to_cpu(block));
 
 	node_bits = (height - 1) * META_BLK_SHIFT;
 
@@ -373,7 +373,7 @@ static void pmfs_decrease_btree_height(struct super_block *sb,
 	pmfs_dbg_verbose("reducing tree height %x->%x\n", height, new_height);
 	while (height > new_height) {
 		/* freeing the meta block */
-		root = pmfs_get_block(sb, le64_to_cpu(newroot));
+		root = wpmfs_get_block(sb, le64_to_cpu(newroot));
 		blocknr = pmfs_get_blocknr(sb, le64_to_cpu(newroot),
 			PMFS_BLOCK_TYPE_4K);
 		newroot = root[0];
@@ -402,7 +402,7 @@ static unsigned long pmfs_inode_count_iblocks_recursive(struct super_block *sb,
 
 	if (height == 0)
 		return 1;
-	node = pmfs_get_block(sb, le64_to_cpu(block));
+	node = wpmfs_get_block(sb, le64_to_cpu(block));
 	for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
 		if (node[i] == 0)
 			continue;
@@ -520,7 +520,7 @@ end_truncate_blocks:
 
 
 static int pmfs_increase_btree_height(struct super_block *sb,
-		struct pmfs_inode *pi, u32 new_height)
+		struct pmfs_inode *pi, u32 new_height, u8 vlocation)
 {
 	u32 height = pi->height;
 	__le64 *root, prev_root = pi->root;
@@ -535,8 +535,8 @@ static int pmfs_increase_btree_height(struct super_block *sb,
 			pmfs_err(sb, "failed to increase btree height\n");
 			break;
 		}
-		blocknr = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
-		root = pmfs_get_block(sb, blocknr);
+		blocknr = wpmfs_get_blockoff(sb, blocknr, vlocation).blockoff;
+		root = wpmfs_get_block(sb, blocknr);
 		pmfs_memunlock_block(sb, root);
 		PM_EQU(root[0], prev_root);
 		pmfs_memlock_block(sb, root);
@@ -563,7 +563,7 @@ static int pmfs_increase_btree_height(struct super_block *sb,
 static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 	struct super_block *sb, struct pmfs_inode *pi, __le64 block, u32 height,
 	unsigned long first_blocknr, unsigned long last_blocknr, bool new_node,
-	bool zero)
+	bool zero, u8 vlocation)
 {
 	int i, errval;
 	unsigned int meta_bits = META_BLK_SHIFT, node_bits;
@@ -573,7 +573,7 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 	unsigned int first_index, last_index;
 	unsigned int flush_bytes;
 
-	node = pmfs_get_block(sb, le64_to_cpu(block));
+	node = wpmfs_get_block(sb, le64_to_cpu(block));
 
 	node_bits = (height - 1) * meta_bits;
 
@@ -604,8 +604,8 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 					journal_saved = 1;
 				}
 				pmfs_memunlock_block(sb, node);
-				node[i] = cpu_to_le64(pmfs_get_block_off(sb,
-						blocknr, pi->i_blk_type));
+				node[i] = cpu_to_le64(wpmfs_get_blockoff(sb,
+						blocknr, vlocation).blockoff);
 				pmfs_memlock_block(sb, node);
 			}
 		} else {
@@ -627,8 +627,8 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 					journal_saved = 1;
 				}
 				pmfs_memunlock_block(sb, node);
-				PM_EQU(node[i], cpu_to_le64(pmfs_get_block_off(sb,
-					    blocknr, PMFS_BLOCK_TYPE_4K)));
+				PM_EQU(node[i], cpu_to_le64(wpmfs_get_blockoff(sb,
+					    blocknr, vlocation).blockoff));
 				pmfs_memlock_block(sb, node);
 				new_node = 1;
 			}
@@ -640,7 +640,7 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 				((1 << node_bits) - 1)) : (1 << node_bits) - 1;
 
 			errval = recursive_alloc_blocks(trans, sb, pi, node[i],
-			height - 1, first_blk, last_blk, new_node, zero);
+			height - 1, first_blk, last_blk, new_node, zero, vlocation);
 			if (errval < 0)
 				goto fail;
 		}
@@ -658,7 +658,7 @@ fail:
 
 int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 	struct pmfs_inode *pi, unsigned long file_blocknr, unsigned int num,
-	bool zero)
+	bool zero, u8 vlocation)
 {
 	int errval;
 	unsigned long max_blocks;
@@ -710,21 +710,21 @@ int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 					" block\n", __func__, __LINE__);
 				goto fail;
 			}
-			root = cpu_to_le64(pmfs_get_block_off(sb, blocknr,
-					   pi->i_blk_type));
+			root = cpu_to_le64(wpmfs_get_blockoff(sb, blocknr,
+					   vlocation).blockoff);
 			pmfs_memunlock_inode(sb, pi);
 			PM_EQU(pi->root, root);
 			PM_EQU(pi->height, height);
 			pmfs_memlock_inode(sb, pi);
 		} else {
-			errval = pmfs_increase_btree_height(sb, pi, height);
+			errval = pmfs_increase_btree_height(sb, pi, height, vlocation);
 			if (errval) {
 				pmfs_dbg_verbose("[%s:%d] failed: inc btree"
 					" height\n", __func__, __LINE__);
 				goto fail;
 			}
 			errval = recursive_alloc_blocks(trans, sb, pi, pi->root,
-			pi->height, first_blocknr, last_blocknr, 1, zero);
+			pi->height, first_blocknr, last_blocknr, 1, zero, vlocation);
 			if (errval < 0)
 				goto fail;
 		}
@@ -734,7 +734,7 @@ int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 			return 0;
 
 		if (height > pi->height) {
-			errval = pmfs_increase_btree_height(sb, pi, height);
+			errval = pmfs_increase_btree_height(sb, pi, height, vlocation);
 			if (errval) {
 				pmfs_dbg_verbose("Err: inc height %x:%x tot %lx"
 					"\n", pi->height, height, total_blocks);
@@ -742,7 +742,7 @@ int __pmfs_alloc_blocks(pmfs_transaction_t *trans, struct super_block *sb,
 			}
 		}
 		errval = recursive_alloc_blocks(trans, sb, pi, pi->root, height,
-				first_blocknr, last_blocknr, 0, zero);
+				first_blocknr, last_blocknr, 0, zero, vlocation);
 		if (errval < 0)
 			goto fail;
 	}
@@ -758,13 +758,13 @@ fail:
  * block number.
  */
 inline int pmfs_alloc_blocks(pmfs_transaction_t *trans, struct inode *inode,
-		unsigned long file_blocknr, unsigned int num, bool zero)
+		unsigned long file_blocknr, unsigned int num, bool zero, u8 vlocation)
 {
 	struct super_block *sb = inode->i_sb;
 	struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
 	int errval;
 
-	errval = __pmfs_alloc_blocks(trans, sb, pi, file_blocknr, num, zero);
+	errval = __pmfs_alloc_blocks(trans, sb, pi, file_blocknr, num, zero, vlocation);
 	inode->i_blocks = le64_to_cpu(pi->i_blocks);
 
 	return errval;
@@ -820,7 +820,7 @@ int pmfs_init_inode_table(struct super_block *sb)
 	/* calculate num_blocks in terms of 4k blocksize */
 	num_blocks = num_blocks << (pmfs_inode_blk_shift(pi) -
 					sb->s_blocksize_bits);
-	errval = __pmfs_alloc_blocks(NULL, sb, pi, 0, num_blocks, true);
+	errval = __pmfs_alloc_blocks(NULL, sb, pi, 0, num_blocks, true, 2);
 
 	if (errval != 0) {
 		pmfs_err(sb, "Err: initializing the Inode Table: %d\n", errval);
@@ -1086,7 +1086,7 @@ static int pmfs_increase_inode_table_size(struct super_block *sb)
 
 	errval = __pmfs_alloc_blocks(trans, sb, pi,
 			le64_to_cpup(&pi->i_size) >> sb->s_blocksize_bits,
-			1, true);
+			1, true, 2);
 
 	if (errval == 0) {
 		u64 i_size = le64_to_cpu(pi->i_size);
@@ -1311,7 +1311,7 @@ static void pmfs_block_truncate_page(struct inode *inode, loff_t newsize)
 	if (!blockoff)
 		return;
 
-	bp = pmfs_get_block(sb, blockoff);
+	bp = wpmfs_get_block(sb, blockoff);
 	if (!bp)
 		return;
 	pmfs_memunlock_block(sb, bp);
@@ -1623,9 +1623,9 @@ void wpmfs_replace_single_datablk(struct inode *inode, pgoff_t pgoff,
 
   // copy the page content
   tmp_blockoff = le64_to_cpu(*pdatablk);
-  src = pmfs_get_block(sb, tmp_blockoff);
+  src = wpmfs_get_block(sb, tmp_blockoff);
   tmp_blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
-  dst = pmfs_get_block(sb, tmp_blockoff);
+  dst = wpmfs_get_block(sb, tmp_blockoff);
   memcpy_page(dst, src, true); 
 
   // modify the tree index
@@ -1648,9 +1648,9 @@ u64 wpmfs_replace_tired_page(struct super_block *sb, __le64 *blk_index) {
 
   // copy the page content
   tmp_blockoff = le64_to_cpu(*blk_index);
-  src = pmfs_get_block(sb, tmp_blockoff);
+  src = wpmfs_get_block(sb, tmp_blockoff);
   tmp_blockoff = (u64)blocknr << PAGE_SHIFT;
-  dst = pmfs_get_block(sb, tmp_blockoff);
+  dst = wpmfs_get_block(sb, tmp_blockoff);
   memcpy_page(dst, src, true);
 
   // modify the tree index

@@ -212,6 +212,20 @@ typedef struct timespec timing_t;
 
 extern void pmfs_error_mng(struct super_block *sb, const char *fmt, ...);
 
+/* wpmfs_wl.c */
+// TODO：确保每次持久化的时候都只使用 wpmfs_blockoff.blockoff
+typedef union wpmfs_blockoff {
+  u64 blockoff;
+  struct {
+    u64 val : 57;
+    // 0: direct mapping
+    // 1: vmap static
+    // 2: vmap dynamic
+    u8 vlocation : 7;
+  };
+} wb;
+extern wb wpmfs_map_dynamic_page(struct super_block *sb, u64 blocknr);
+
 /* file.c */
 extern int pmfs_mmap(struct file *file, struct vm_area_struct *vma);
 
@@ -270,10 +284,10 @@ extern unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 		__le64 root, u32 height, u32 btype, unsigned long last_blocknr);
 extern int __pmfs_alloc_blocks(pmfs_transaction_t *trans,
 		struct super_block *sb, struct pmfs_inode *pi,
-		unsigned long file_blocknr, unsigned int num, bool zero);
+		unsigned long file_blocknr, unsigned int num, bool zero, u8 vlocation);
 extern int pmfs_init_inode_table(struct super_block *sb);
 extern int pmfs_alloc_blocks(pmfs_transaction_t *trans, struct inode *inode,
-		unsigned long file_blocknr, unsigned int num, bool zero);
+		unsigned long file_blocknr, unsigned int num, bool zero, u8 vlocation);
 extern u64 pmfs_find_data_block(struct inode *inode,
 	unsigned long file_blocknr);
 int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
@@ -368,12 +382,17 @@ struct pmfs_inode_info {
 	struct inode	vfs_inode;
 };
 
-/* 
+/*
  * WPMFS 映射内存相关信息
  */
 struct wpmfs_vmap_info {
-	void *base;	// to vmalloc space
-	u64 size;
+	// map staticly reserved memory to vmalloc space
+  void *base_static;  
+  u64 size_static;
+
+	// map part of dynamicly allocated memory to vmalloc space
+  void *base_dynamic;
+  u64 num_dynamic_pages;
 };
 
 /*
@@ -459,7 +478,7 @@ static inline struct pmfs_super_block *pmfs_get_super(struct super_block *sb)
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
 	// return (struct pmfs_super_block *)sbi->virt_addr;
-	return (struct pmfs_super_block *)sbi->vmapi.base;
+	return (struct pmfs_super_block *)sbi->vmapi.base_static;
 }
 
 static inline pmfs_journal_t *pmfs_get_journal(struct super_block *sb)
@@ -478,13 +497,55 @@ static inline struct pmfs_inode *pmfs_get_inode_table(struct super_block *sb)
 			le64_to_cpu(ps->s_inode_table_offset));
 }
 
-static inline struct pmfs_super_block *pmfs_get_redund_super(struct super_block *sb)
-{
-	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	wpmfs_assert(0);
+// seems never be used.
+// static struct pmfs_super_block *pmfs_get_redund_super(struct super_block *sb)
+// {
+// 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+// 	wpmfs_assert(0);
 
-	return (struct pmfs_super_block *)(sbi->vmapi.base + PMFS_SB_SIZE);
+// 	return (struct pmfs_super_block *)(sbi->vmapi.base_static + PMFS_SB_SIZE);
+// }
+
+static void *wpmfs_get_block(struct super_block *sb, u64 blockoff) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  wb *_wb = (wb *)(&blockoff);
+
+  switch (_wb->vlocation) {
+    case 0:
+      return _wb->val ? (void *)sbi->virt_addr + _wb->val : NULL;
+    case 1:
+      return _wb->val ? (void *)sbi->vmapi.base_static + _wb->val : NULL;
+    case 2:
+      return (void *)sbi->vmapi.base_dynamic + _wb->val;
+
+    default:
+      wpmfs_assert(0);
+      return NULL;
+  }
 }
+
+static wb wpmfs_get_blockoff(struct super_block *sb, u64 blocknr,
+                                    u8 vlocation) {
+  switch (vlocation) {
+    case 0: {
+      wb wblock;
+      wblock.val = blocknr << PAGE_SHIFT;
+      wblock.vlocation = 0;
+      return wblock;
+    }
+    case 2:
+      // CAUTION! SOMETHING REALLY COMPLEX HAPPENED HERE
+			//TODO: TRANSACTION IS REQUIRED TO GURANTEE CRASH CONSISTENCY
+      return wpmfs_map_dynamic_page(sb, blocknr);
+		default: {
+      wb wblock = {0};
+			wpmfs_assert(0);
+			return wblock;
+		}
+  }
+}
+
+extern unsigned long wpmfs_get_pfn(struct super_block *sb, u64 blockoff);
 
 /* If this is part of a read-modify-write of the block,
  * pmfs_memunlock_block() before calling! */
@@ -492,11 +553,12 @@ static inline void *pmfs_get_block(struct super_block *sb, u64 blockoff)
 {
 	// struct pmfs_super_block *ps = pmfs_get_super(sb);
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	PMFS_ASSERT(blockoff);
 
+	PMFS_ASSERT(blockoff);
 	return blockoff ? ((void *)sbi->virt_addr + blockoff) : NULL;
 }
 
+//TODO: 更换为更通用的函数，也即 wpmfs
 static inline unsigned long pmfs_get_pfn(struct super_block *sb, u64 blockoff)
 {
 	return (PMFS_SB(sb)->phys_addr + blockoff) >> PAGE_SHIFT;
@@ -505,9 +567,9 @@ static inline unsigned long pmfs_get_pfn(struct super_block *sb, u64 blockoff)
 static inline void *wpmfs_get_vblock(struct super_block *sb, u64 offset)
 {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	PMFS_ASSERT(offset <= sbi->vmapi.size);
+	PMFS_ASSERT(offset <= sbi->vmapi.size_static);
 
-  return offset ? ((void *)sbi->vmapi.base + offset) : NULL;
+  return offset ? ((void *)sbi->vmapi.base_static + offset) : NULL;
 }
 
 static inline u64 wpmfs_get_blocknr(struct super_block *sb, unsigned long pfn)
@@ -622,10 +684,11 @@ static inline void memcpy_page(void *dst, void *src, bool signal_int) {
   pmfs_flush_buffer(dst, PAGE_SIZE, true);
 }
 
-#define WPMFS_PAGE_SHIFT (3)
+#define WPMFS_PAGE_SHIFT (4)
 #define WPMFS_PAGE_USING (1 << 0)
 #define WPMFS_PAGE_TIRED (1 << 1)
 #define WPMFS_PAGE_VMAP (1 << 2)  // page->index available
+#define WPMFS_PAGE_VMAP_DYNAMIC (1 << 3)  // dynamically allocated page?
 
 static inline unsigned long wpmfs_page_marks(struct page* page) {
   atomic64_t* pmarks = (atomic64_t*)&page->private;
@@ -651,7 +714,7 @@ static inline u64 wpmfs_retrieve_datablk(struct super_block *sb, __le64 *level_p
   bp = le64_to_cpu(level_ptr[idx]);
   if (bp == 0) return 0;
 
-	pfn = pmfs_get_pfn(sb, bp);
+	pfn = wpmfs_get_pfn(sb, bp);
 	if (wpmfs_page_marks(pfn_to_page(pfn)) & WPMFS_PAGE_TIRED) 
 		bp = wpmfs_replace_tired_page(sb, level_ptr + idx);
 
@@ -670,7 +733,7 @@ static inline u64 __pmfs_find_data_block(struct super_block *sb,
 	bp = le64_to_cpu(pi->root);
 
 	while (height > 0) {
-		level_ptr = pmfs_get_block(sb, bp);
+		level_ptr = wpmfs_get_block(sb, bp);
 		bit_shift = (height - 1) * META_BLK_SHIFT;
 		idx = blocknr >> bit_shift;
 		bp = wpmfs_retrieve_datablk(sb, level_ptr, idx);
@@ -694,7 +757,7 @@ static inline __le64 * __wpmfs_find_pdatablk(struct super_block *sb,
 	bp = le64_to_cpu(pi->root);
 
 	while (height > 0) {
-		level_ptr = pmfs_get_block(sb, bp);
+		level_ptr = wpmfs_get_block(sb, bp);
 		bit_shift = (height - 1) * META_BLK_SHIFT;
 		idx = blocknr >> bit_shift;
 		bp = le64_to_cpu(level_ptr[idx]);
@@ -722,8 +785,6 @@ static inline uint32_t pmfs_inode_blk_size (struct pmfs_inode *pi)
 static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 						  u64	ino)
 {
-	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	
 	struct pmfs_inode *inode_table = pmfs_get_inode_table(sb);
 	u64 bp, block, ino_offset;
 
@@ -736,18 +797,37 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 	if (bp == 0)
 		return NULL;
 	ino_offset = (ino & (pmfs_inode_blk_size(inode_table) - 1));
-	return (struct pmfs_inode *)((void *)sbi->virt_addr + bp + ino_offset);
+	return (struct pmfs_inode *)(wpmfs_get_block(sb, bp) + ino_offset);
 }
 
-static inline u64 pmfs_get_addr_off(struct super_block *sb, void *addr) {
+//TODO: 像这种没必要内联的复杂函数，还是直接丢到别的文件里去吧
+static inline u64 wpmfs_reget_blockoff(struct super_block *sb, void *addr) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  wb blockoff = {0};
 
-  if (!is_vmalloc_addr(addr)) return (u64)(addr - sbi->virt_addr);
+  if (!is_vmalloc_addr(addr)) {
+    blockoff.val = (u64)(addr - sbi->virt_addr);
+    blockoff.vlocation = 0;
+    return blockoff.blockoff;
+  }
 
-  PMFS_ASSERT(addr >= sbi->vmapi.base &&
-              addr < (sbi->vmapi.base + sbi->vmapi.size));
-  return (wpmfs_get_blocknr(sb, vmalloc_to_pfn(addr)) << PAGE_SHIFT) |
-         ((u64)addr & ~PAGE_MASK);
+  if (addr >= sbi->vmapi.base_static &&
+      addr < (sbi->vmapi.base_static + sbi->vmapi.size_static)) {
+    blockoff.val = (u64)(addr - sbi->vmapi.base_static);
+    blockoff.vlocation = 1;
+    return blockoff.blockoff;
+  }
+
+  if (addr >= sbi->vmapi.base_dynamic &&
+      addr < (sbi->vmapi.base_dynamic +
+              PAGE_SIZE * sbi->vmapi.num_dynamic_pages)) {
+    blockoff.val = (u64)(addr - sbi->vmapi.base_dynamic);
+    blockoff.vlocation = 2;
+    return blockoff.blockoff;
+  }
+
+  wpmfs_assert(0);
+  return blockoff.blockoff;
 }
 
 static inline u64
@@ -810,7 +890,7 @@ static inline void check_eof_blocks(struct super_block *sb,
 
 static inline int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	u64 blockoff = pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K);
+	u64 blockoff = wpmfs_get_blockoff(sb, blocknr, 0).blockoff;
 	u64 pfn = pmfs_get_pfn(sb, blockoff);
 	int target_bin = (int)(wt_cnter_read_pfn(pfn) / get_int_thres_size());
 	return (target_bin < sbi->num_bins) ? target_bin : sbi->num_bins - 1;

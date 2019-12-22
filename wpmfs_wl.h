@@ -19,6 +19,7 @@ typedef struct wpmfs_m4m_slot {
 
 struct wpmfs_mptable_meta {
   __le64 num_prealloc_pages;
+  __le64 mptable_blocknr;
 };
 
 static inline int frag_mptable_slots(void) {
@@ -29,6 +30,13 @@ static inline struct wpmfs_mptable_meta* wpmfs_get_mptable_meta(
     struct super_block* sb) {
   struct pmfs_sb_info* sbi = PMFS_SB(sb);
   return (struct wpmfs_mptable_meta*)(sbi->virt_addr);
+}
+
+static inline mptable_slot_t* wpmfs_get_mptable_dynamic(
+    struct super_block* sb) {
+  u64 blocknr = le64_to_cpu(wpmfs_get_mptable_meta(sb)->mptable_blocknr);
+  u64 blockoff = wpmfs_get_blockoff(sb, blocknr, 0).blockoff;
+  return (mptable_slot_t*)wpmfs_get_block(sb, blockoff);
 }
 
 static inline m4m_slot_t* wpmfs_get_m4m(struct super_block* sb,

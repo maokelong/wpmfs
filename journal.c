@@ -87,7 +87,7 @@ static inline void pmfs_undo_logentry(struct super_block *sb,
 	char *data;
 
 	if (le->size > 0) {
-		data = pmfs_get_block(sb, le64_to_cpu(le->addr_offset));
+		data = wpmfs_get_block(sb, le64_to_cpu(le->addr_offset));
 		/* Undo changes by flushing the log entry to pmfs */
 		pmfs_memunlock_range(sb, data, le->size);
 		PM_MEMCPY(data, le->data, le->size);
@@ -124,7 +124,7 @@ static void pmfs_flush_transaction(struct super_block *sb,
 
 	for (i = 0; i < trans->num_used; i++, le++) {
 		if (le->size) {
-			data = pmfs_get_block(sb,le64_to_cpu(le->addr_offset));
+			data = wpmfs_get_block(sb,le64_to_cpu(le->addr_offset));
 			if (sbi->redo_log) {
 				pmfs_memunlock_range(sb, data, le->size);
 				PM_MEMCPY(data, le->data, le->size);
@@ -173,7 +173,7 @@ static void pmfs_redo_transaction(struct super_block *sb,
 
 	for (i = 0; i < trans->num_entries; i++) {
 		if (gen_id == le16_to_cpu(le->gen_id) && le->size > 0) {
-			data = pmfs_get_block(sb,le64_to_cpu(le->addr_offset));
+			data = wpmfs_get_block(sb, le64_to_cpu(le->addr_offset));
 			/* flush data if we are called during recovery */
 			if (recover) {
 				pmfs_memunlock_range(sb, data, le->size);
@@ -442,7 +442,7 @@ int pmfs_journal_soft_init(struct super_block *sb)
 	pmfs_journal_t *journal = pmfs_get_journal(sb);
 
 	sbi->next_transaction_id = 0;
-	sbi->journal_base_addr = wpmfs_get_vblock(sb,le64_to_cpu(journal->base));
+	sbi->journal_base_addr = wpmfs_get_block(sb, le64_to_cpu(journal->base));
 	sbi->jsize = le32_to_cpu(journal->size);
 	mutex_init(&sbi->journal_mutex);
 	sbi->redo_log = !!le16_to_cpu(journal->redo_logging);
@@ -455,9 +455,10 @@ int pmfs_journal_hard_init(struct super_block *sb, uint64_t base,
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	pmfs_journal_t *journal = pmfs_get_journal(sb);
+	wb blockoff = {.val = base, .vlocation = 1};
 	/* lets do Undo logging for now */
 	pmfs_memunlock_range(sb, journal, sizeof(*journal));
-	PM_EQU(journal->base, cpu_to_le64(base));
+	PM_EQU(journal->base, cpu_to_le64(blockoff.blockoff));
 	PM_EQU(journal->size, cpu_to_le32(size));
 	PM_EQU(journal->gen_id, cpu_to_le16(1));
 	PM_EQU(journal->head, 0); 
@@ -465,7 +466,7 @@ int pmfs_journal_hard_init(struct super_block *sb, uint64_t base,
 	PM_EQU(journal->redo_logging, 0);
 	pmfs_memlock_range(sb, journal, sizeof(*journal));
 
-	sbi->journal_base_addr = wpmfs_get_vblock(sb, base);
+	sbi->journal_base_addr = wpmfs_get_block(sb, blockoff.blockoff);
 	pmfs_memunlock_range(sb, sbi->journal_base_addr, size);
 	memset_nt(sbi->journal_base_addr, 0, size);
 	pmfs_memlock_range(sb, sbi->journal_base_addr, size);
@@ -595,7 +596,7 @@ again:
 
 	pmfs_dbg_trans("new transaction tid %d nle %d avl sz %x sa %llx\n",
 		trans->transaction_id, max_log_entries, avail_size, base);
-	trans->start_addr = wpmfs_get_vblock(sb, base);
+	trans->start_addr = wpmfs_get_block(sb, base);
 	trans->parent = (pmfs_transaction_t *)current->journal_info;
 	current->journal_info = trans;
 	PMFS_END_TIMING(new_trans_t, log_time);
@@ -654,7 +655,7 @@ int pmfs_add_logentry(struct super_block *sb,
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	pmfs_logentry_t *le;
 	int num_les = 0, i;
-	uint64_t le_start = size ? pmfs_get_addr_off(sb, addr) : 0;
+	uint64_t le_start = size ? wpmfs_reget_blockoff(sb, addr) : 0;
 	uint8_t le_size;
 	INIT_TIMING(add_log_time);
 

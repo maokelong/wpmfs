@@ -301,7 +301,7 @@ static int pmfs_allocate_datablock_block_inode(pmfs_transaction_t *trans,
   PM_EQU(pi->i_size, cpu_to_le64(num_blocks << sb->s_blocksize_bits));
   pmfs_memlock_inode(sb, pi);
 
-  errval = __pmfs_alloc_blocks(trans, sb, pi, 0, num_blocks, false);
+  errval = __pmfs_alloc_blocks(trans, sb, pi, 0, num_blocks, false, 0);
 
   return errval;
 }
@@ -613,6 +613,7 @@ int pmfs_setup_blocknode_map(struct super_block *sb) {
   struct pmfs_super_block *super = pmfs_get_super(sb);
   struct pmfs_inode *pi = pmfs_get_inode_table(sb);
   pmfs_journal_t *journal = pmfs_get_journal(sb);
+  wb blockoff = {.blockoff = le64_to_cpu(journal->base)};
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   struct scan_bitmap bm;
   unsigned long initsize = le64_to_cpu(super->s_size);
@@ -662,7 +663,7 @@ int pmfs_setup_blocknode_map(struct super_block *sb) {
 
   /* initialize the num_free_blocks to */
   sbi->num_free_blocks = ((unsigned long)(initsize) >> PAGE_SHIFT);
-  pmfs_init_blockmap(sb, le64_to_cpu(journal->base) + sbi->jsize);
+  pmfs_init_blockmap(sb, blockoff.val + sbi->jsize);
 
   pmfs_build_blocknode_map(sb, &bm);
 
