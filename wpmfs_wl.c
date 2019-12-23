@@ -53,10 +53,15 @@ wb wpmfs_map_dynamic_page(struct super_block *sb, u64 blocknr) {
   wpmfs_mark_page(page, wpmfs_page_marks(page),
                   WPMFS_PAGE_USING | WPMFS_PAGE_VMAP | WPMFS_PAGE_VMAP_DYNAMIC);
   page->index = sbi->vmapi.num_dynamic_pages;
-  blockoff.val = PAGE_SIZE * sbi->vmapi.num_dynamic_pages++;
+  blockoff.val = PAGE_SIZE * sbi->vmapi.num_dynamic_pages;
   blockoff.vlocation = 2;
 
-  PM_EQU(mptable[sbi->vmapi.num_dynamic_pages++].blocknr, cpu_to_le64(blocknr));
+  PM_EQU(mptable[sbi->vmapi.num_dynamic_pages].blocknr, cpu_to_le64(blocknr));
+  pmfs_flush_buffer(mptable + sbi->vmapi.num_dynamic_pages, sizeof(*mptable),
+                    true);
+
+  // 目前只有一个进程能访问，因此无需担心线程安全问题
+  sbi->vmapi.num_dynamic_pages++;
   return blockoff;
 }
 
@@ -740,11 +745,14 @@ static int _init_mem_soft(struct super_block *sb) {
   struct wpmfs_mptable_meta *pvmap = wpmfs_get_mptable_meta(sb);
   struct page **ppages_static;
   void *vmaddr;
-  u64 num_m4m_slots, cur_m4m_page, cur_m4m_slot, cur_mptable_slot;
+  u64 num_m4m_slots, cur_m4m_page, cur_m4m_slot, cur_mptable_slot,
+      cur_dynamic_page, cur_mptable_dynamic_page;
   unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
   int ret;
   m4m_slot_t *m4m_base;
   int m4m_pages;
+  mptable_slot_t *mptable_dynamic;
+  struct vm_struct *area;
   INIT_TIMING(setup_vmap_time);
 
   // 同时登记映射到 vmalloc space 的页
@@ -795,6 +803,32 @@ static int _init_mem_soft(struct super_block *sb) {
   if (!vmaddr) goto out_nomem;
   sbi->vmapi.base_static = vmaddr;
   sbi->vmapi.size_static = pvmap->num_prealloc_pages * PAGE_SIZE;
+
+  /* 恢复动态映射内存 */
+  area = get_vm_area_caller(1024 * 1024 * 1024, VM_MAP,
+                            __builtin_return_address(0));
+  if (!area) {
+    vunmap(vmaddr);
+    goto out_nomem;
+  }
+  sbi->vmapi.base_dynamic = area->addr;
+  sbi->vmapi.num_dynamic_pages = 0;
+
+  mptable_dynamic = wpmfs_get_mptable_dynamic(sb);
+  for (cur_mptable_dynamic_page = 0; cur_mptable_dynamic_page < 10;
+       ++cur_mptable_dynamic_page) {
+    unsigned long pfn = (virt_to_phys(mptable_dynamic) >> PAGE_SHIFT) +
+                        cur_mptable_dynamic_page;
+    struct page *page = pfn_to_page(pfn);
+    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
+  }
+
+  for (cur_dynamic_page = 0; mptable_dynamic[cur_dynamic_page].blocknr;
+       ++cur_dynamic_page) {
+    u64 blocknr = le64_to_cpu(mptable_dynamic[cur_dynamic_page].blocknr);
+    wpmfs_map_dynamic_page(sb, blocknr);
+  }
+
   PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
 
   ret = 0;
@@ -830,6 +864,7 @@ static void _exit_int(void) {
 static void _exit_mem(struct super_block *sb) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   vunmap(sbi->vmapi.base_static);
+  vunmap(sbi->vmapi.base_dynamic);
 }
 
 void wpmfs_exit(struct super_block *sb) {

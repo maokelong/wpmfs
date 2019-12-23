@@ -77,12 +77,13 @@ static void wpmfs_inode_table_crawl_recursive(struct super_block *sb,
   struct pmfs_inode *pi;
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-  node = pmfs_get_block(sb, block);
+  node = wpmfs_get_block(sb, block);
 
   if (height == 0) {
     unsigned int inodes_per_block = INODES_PER_BLOCK(btype);
+    wb *blockoff = (wb *)&block;
     wpmfs_assert(btype == PMFS_BLOCK_TYPE_4K);
-    set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
+    set_bit(blockoff->val >> PAGE_SHIFT, bm->bitmap_4k);
 
     sbi->s_inodes_count += inodes_per_block;
     for (i = 0; i < inodes_per_block; i++) {

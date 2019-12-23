@@ -10,3 +10,4 @@ modules.order
 pmfs.mod.c
 wpmfs.mod.c
 .vscode
+tmp
