@@ -20,7 +20,10 @@ const char *Timingstring[TIMING_NUM] =
 	"free_tree",
 	"evict_inode",
 	"recovery",
-	"setup_vmap_t"
+	"setup_vmap",
+	"wl_rmap",
+	"wl_vmap",
+	"wl_stranded"
 };
 
 unsigned long long Timingstats[TIMING_NUM];

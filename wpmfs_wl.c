@@ -510,15 +510,26 @@ static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
 static void _wear_lerveling(struct super_block *sb, unsigned long pfn) {
   switch (_page_type(pfn)) {
     case TYPE_RMAP:
-      if (_int_ctrl.wl_switch & 0x1) _level_type_rmap(sb, pfn);
-      break;
+      if (_int_ctrl.wl_switch & 0x1) {
+        INIT_TIMING(wl_rmap_time);
+        PMFS_START_TIMING(wl_rmap_t, wl_rmap_time);
+        _level_type_rmap(sb, pfn);
+        PMFS_END_TIMING(wl_rmap_t, wl_rmap_time);
+        break;
+      }
 
     case TYPE_VMAP:
-      if (_int_ctrl.wl_switch & 0x2) _level_type_vmap(sb, pfn);
+      if (_int_ctrl.wl_switch & 0x2) {
+        INIT_TIMING(wl_vmap_time);
+        _level_type_vmap(sb, pfn);
+        PMFS_START_TIMING(wl_vmap_t, wl_vmap_time);
+        PMFS_END_TIMING(wl_vmap_t, wl_vmap_time);
+      }
       break;
 
     case TYPE_STRANDED:
-      if (_int_ctrl.wl_switch & 0x4) _level_type_stranded(sb, pfn);
+      if (_int_ctrl.wl_switch & 0x4)
+        _level_type_stranded(sb, pfn);
       break;
 
     default:
