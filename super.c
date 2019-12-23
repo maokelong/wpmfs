@@ -179,6 +179,7 @@ enum {
   Opt_dbgmask,
   Opt_tracemask,
   Opt_bs,
+	Opt_vmap,
   Opt_wlsw,
 	Opt_alloc,
   Opt_err
@@ -202,6 +203,7 @@ static const match_table_t tokens = {
     {Opt_dbgmask, "dbgmask=%u"},
     {Opt_tracemask, "tracemask=%u"},
     {Opt_bs, "backing_dev=%s"},
+    {Opt_vmap, "vmap"},
     {Opt_wlsw, "wlsw=%u"},
     {Opt_alloc, "alloc=%u"},
     {Opt_err, NULL},
@@ -325,6 +327,10 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			pmfs_tracemask = option;
+			break;
+		case Opt_vmap:
+			sbi->vmapi.enabled = true;
+			pmfs_info("WPMFS: Enabling vmap\n");
 			break;
 		case Opt_wlsw:
 			if (match_int(&args[0], &option))

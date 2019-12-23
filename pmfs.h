@@ -386,6 +386,8 @@ struct pmfs_inode_info {
  * WPMFS 映射内存相关信息
  */
 struct wpmfs_vmap_info {
+	bool enabled;
+
 	// map staticly reserved memory to vmalloc space
   void *base_static;  
   u64 size_static;
@@ -475,10 +477,10 @@ static inline struct pmfs_inode_info *PMFS_I(struct inode *inode)
  * pmfs_memunlock_super() before calling! */
 static inline struct pmfs_super_block *pmfs_get_super(struct super_block *sb)
 {
-	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
-	// return (struct pmfs_super_block *)sbi->virt_addr;
-	return (struct pmfs_super_block *)sbi->vmapi.base_static;
+  return !sbi->vmapi.enabled ? (struct pmfs_super_block *)sbi->virt_addr
+                            : (struct pmfs_super_block *)sbi->vmapi.base_static;
 }
 
 static inline pmfs_journal_t *pmfs_get_journal(struct super_block *sb)
@@ -512,10 +514,13 @@ static void *wpmfs_get_block(struct super_block *sb, u64 blockoff) {
 
   switch (_wb->vlocation) {
     case 0:
+		vmap_disabled:
       return _wb->val ? (void *)sbi->virt_addr + _wb->val : NULL;
     case 1:
+			if(!sbi->vmapi.enabled) goto vmap_disabled;
       return _wb->val ? (void *)sbi->vmapi.base_static + _wb->val : NULL;
     case 2:
+			if(!sbi->vmapi.enabled) goto vmap_disabled;
       return (void *)sbi->vmapi.base_dynamic + _wb->val;
 
     default:
@@ -525,24 +530,26 @@ static void *wpmfs_get_block(struct super_block *sb, u64 blockoff) {
 }
 
 static wb wpmfs_get_blockoff(struct super_block *sb, u64 blocknr,
-                                    u8 vlocation) {
+                             u8 vlocation) {
+  wb wblock = {0};
+
   switch (vlocation) {
-    case 0: {
-      wb wblock;
+    case 0:
+    vmap_disabled:
       wblock.val = blocknr << PAGE_SHIFT;
       wblock.vlocation = 0;
-      return wblock;
-    }
+			break;
+
     case 2:
       // CAUTION! SOMETHING REALLY COMPLEX HAPPENED HERE
-			//TODO: TRANSACTION IS REQUIRED TO GURANTEE CRASH CONSISTENCY
-      return wpmfs_map_dynamic_page(sb, blocknr);
-		default: {
-      wb wblock = {0};
-			wpmfs_assert(0);
-			return wblock;
-		}
+      // TODO: TRANSACTION IS REQUIRED TO GURANTEE CRASH CONSISTENCY
+      if (!PMFS_SB(sb)->vmapi.enabled) goto vmap_disabled;
+      wblock = wpmfs_map_dynamic_page(sb, blocknr);
+			break;
   }
+
+	wpmfs_assert(wblock.blockoff);
+	return wblock;
 }
 
 extern unsigned long wpmfs_get_pfn(struct super_block *sb, u64 blockoff);

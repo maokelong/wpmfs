@@ -728,12 +728,14 @@ static bool _check_congfigs(void) {
 
 int wpmfs_init_hard(struct super_block *sb, u64 *reserved_memory_size) {
   // TODO: to replace pmfs_init
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
   int errno;
   if (!_check_congfigs()) return -1;
   if (!_borrow_symbols()) return -1;
 
   wpmfs_init_all_cnter();
   if ((errno = _init_int(sb)) != 0) return errno;
+  if (!sbi->vmapi.enabled) return 0;
   if ((errno = _init_mem_hard(sb, reserved_memory_size)) != 0) return errno;
 
   return 0;
@@ -803,7 +805,6 @@ static int _init_mem_soft(struct super_block *sb) {
   if (!vmaddr) goto out_nomem;
   sbi->vmapi.base_static = vmaddr;
   sbi->vmapi.size_static = pvmap->num_prealloc_pages * PAGE_SIZE;
-
   /* 恢复动态映射内存 */
   area = get_vm_area_caller(1024 * 1024 * 1024, VM_MAP,
                             __builtin_return_address(0));
@@ -899,6 +900,8 @@ void wpmfs_print_memory_layout(struct super_block *sb,
       sb, sbi->block_start + num_reserved_block, PMFS_BLOCK_TYPE_4K);
   void *pdatablk = pmfs_get_block(sb, datablk_off);
 
+  if (!sbi->vmapi.enabled) return;
+ 
   wpmfs_assert(wpmfs_get_block(sb, journal_meta->base) == journal_data);
   wpmfs_assert(cpu_to_le32(journal_meta->size) == sbi->jsize);
 
