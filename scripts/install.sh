@@ -11,7 +11,7 @@ source config.sh
 
 # make fs
 cd ..
-make
+make CPPFLAGS=-DSTOP_TRACKING
 
 # mkdir, unmount and rmmod
 if [[ ! -d $CONFIG_PATH_FS ]]; then

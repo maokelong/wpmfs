@@ -110,6 +110,11 @@ static inline void _wt_cnter_track_addr(void* addr, uint64_t cnt) {
 
 static inline void wt_cnter_track_addr(void* addr, uint64_t cnt) {
   uint64_t addr_t = (uint64_t)addr;
+
+#ifdef STOP_TRACKING
+  return;
+#endif
+
   if (likely((addr_t & ~PAGE_MASK) + cnt <= PAGE_SIZE)) {
     // 当该次写操作均发生在同一页
     _wt_cnter_track_addr(addr, cnt);
@@ -143,6 +148,11 @@ static inline bool _wt_cnter_track_addr_intless(void* addr, uint64_t cnt) {
 
 static inline bool wt_cnter_track_addr_intless(void* addr, uint64_t cnt) {
   uint64_t addr_t = (uint64_t)addr;
+
+#ifdef STOP_TRACKING
+  return false;
+#endif
+
   if (likely((addr_t & ~PAGE_MASK) + cnt <= PAGE_SIZE)) {
     // 当该次写操作均发生在同一页
     return _wt_cnter_track_addr_intless(addr, cnt);
