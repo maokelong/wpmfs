@@ -25,7 +25,7 @@ extern void wpmfs_int_top(unsigned long pfn);
 /* Whenever a page suffers 2^power writes, the memory controller will sigal a
  * inetrrupt, suggesting page migraition. */
 // TODO: 28
-#define INTERRUPT_THRESHOLD_POWER (20)
+#define INTERRUPT_THRESHOLD_POWER (17)
 #define CELL_ENDURANCE_POWER (INTERRUPT_THRESHOLD_POWER)
 
 extern size_t _int_thres_power;
@@ -94,6 +94,10 @@ static inline bool _wt_cnter_add(unsigned long pfn, uint64_t cnt) {
 }
 
 static inline void wt_cnter_track_pfn(unsigned long pfn, uint64_t cnt) {
+#ifdef STOP_TRACKING
+  return;
+#endif
+
   if (_wt_cnter_add(pfn, cnt)) {
     wpmfs_int_top(pfn);
   }

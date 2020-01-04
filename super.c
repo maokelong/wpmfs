@@ -546,8 +546,8 @@ static inline void set_default_opts(struct pmfs_sb_info *sbi)
 	set_opt(sbi->s_mount_opt, HUGEIOREMAP);
 	set_opt(sbi->s_mount_opt, ERRORS_CONT);
 	sbi->jsize = PMFS_DEFAULT_JOURNAL_SIZE;
-	wpmfs_set_wl_switch(7);
-	wpmfs_select_allocator(0);
+	wpmfs_set_wl_switch(0);
+	wpmfs_select_allocator(1);
 }
 
 static void pmfs_root_check(struct super_block *sb, struct pmfs_inode *root_pi)
@@ -955,6 +955,8 @@ static void pmfs_put_super(struct super_block *sb)
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct pmfs_blocknode *i;
 	struct list_head *head = &(sbi->block_inuse_head);
+
+	pmfs_print_timing_stats();
 
 #ifdef CONFIG_PMFS_TEST
 	if (first_pmfs_super == sbi->virt_addr)

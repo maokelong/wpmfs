@@ -447,6 +447,8 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	ret = written;
 out:
 	inode_unlock(inode);
+	sb_end_write(inode->i_sb);
+	PMFS_END_TIMING(xip_write_t, xip_write_time);
 	return ret;
 }
 

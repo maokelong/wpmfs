@@ -474,6 +474,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
                     le32_to_cpu(*(__le32 *)(src_direct + 144)));
   memcpy_page(dst_direct, src_direct, false);
   PM_EQU_NO_INT(mptable_slot->blocknr, cpu_to_le64(blocknr), signal_int);
+  wpmfs_assert(signal_int == false);
   pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
                     true);
   wpmfs_dbg_wl_vmap("src, head = %u, tail = %u.\n",
@@ -492,10 +493,6 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
 
   wpmfs_dbg_wl_vmap("Migration(Case Vmap) succeed. %px: %px -> %px. cpu: %d\n",
                     src_vmap, src_direct, dst_direct, raw_smp_processor_id());
-
-  // 检查 mptable 是否需要进行损耗均衡
-  // 目前只有 kworker 单线程地使用 mptable，因此无需做并发控制
-  // TODO: can be removed
 }
 
 static void _level_type_stranded(struct super_block *sb, unsigned long pfn) {
@@ -521,8 +518,8 @@ static void _wear_lerveling(struct super_block *sb, unsigned long pfn) {
     case TYPE_VMAP:
       if (_int_ctrl.wl_switch & 0x2) {
         INIT_TIMING(wl_vmap_time);
-        _level_type_vmap(sb, pfn);
         PMFS_START_TIMING(wl_vmap_t, wl_vmap_time);
+        _level_type_vmap(sb, pfn);
         PMFS_END_TIMING(wl_vmap_t, wl_vmap_time);
       }
       break;

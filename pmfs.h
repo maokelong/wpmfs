@@ -727,8 +727,8 @@ static inline u64 wpmfs_retrieve_datablk(struct super_block *sb, __le64 *level_p
 	pfn = wpmfs_get_pfn(sb, bp);
 	if (wpmfs_page_marks(pfn_to_page(pfn)) & WPMFS_PAGE_TIRED){
 		INIT_TIMING(wl_stranded_time);
-		bp = wpmfs_replace_tired_page(sb, level_ptr + idx);
 		PMFS_START_TIMING(wl_stranded_t, wl_stranded_time);
+		bp = wpmfs_replace_tired_page(sb, level_ptr + idx);
 		PMFS_END_TIMING(wl_stranded_t, wl_stranded_time);
 	}
 
