@@ -79,7 +79,6 @@ static void wpmfs_inode_table_crawl_recursive(struct super_block *sb,
 
   set_bit(blocknr, bm->bitmap_4k);
   node = wpmfs_get_block(sb, blockoff);
-  wpmfs_error("blockoff = %lx.\n", blockoff);
 
   if (height == 0) {
     unsigned int inodes_per_block = INODES_PER_BLOCK(btype);
