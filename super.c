@@ -461,7 +461,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 		* 是因为恰好在这里计算好了静态区域的大小。
 		*/
 	reserved_size = journal_data_start + sbi->jsize;
-	if (wpmfs_init_hard(sb, &reserved_size)) {
+	if (wpmfs_init(sb, &reserved_size)) {
 		wpmfs_error("Hard init failed.\n");
 		return ERR_PTR(-EPERM);
 	}
@@ -751,7 +751,7 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	pmfs_dbg_verbose("checking physical address 0x%016llx for pmfs image\n",
 		  (u64)sbi->phys_addr);
 
-	retval = wpmfs_init_soft(sb);
+	retval = wpmfs_recv(sb);
 	if (retval) {
 		wpmfs_error("Soft init failed.\n");
 		goto out;

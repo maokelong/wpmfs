@@ -102,7 +102,7 @@ int __wpmfs_new_block(struct super_block *sb, unsigned long *blocknr,
     if (!list_empty(lcur))
       PM_TOUCH(&lcur->prev->next, sizeof(lcur->prev->next));
 
-    *blocknr = pmfs_get_blocknr(sb, wpmfs_reget_blockoff(sb, entry), 0);
+    *blocknr = wpmfs_reget_blocknr(sb, wpmfs_reget_blockoff(sb, entry));
     goto new_suc;
   }
 
@@ -424,4 +424,238 @@ bool wpmfs_select_allocator(int alloc) {
   }
 
   return true;
+}
+
+/*************************************************
+ * Additional memory management functions
+ * introduced by wpmfs
+ *************************************************/
+
+unsigned long wpmfs_get_pfn(struct super_block *sb, u64 blockoff) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
+  wb *_wb = (wb *)(&blockoff);
+
+  switch (_wb->vlocation) {
+    case 0:
+      return pfn0 + (blockoff >> PAGE_SHIFT);
+
+    case 2: {
+      mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
+      return pfn0 + le64_to_cpu(mptable[_wb->val >> PAGE_SHIFT].blocknr);
+    }
+
+    default:
+      wpmfs_assert(0);
+      return 0;
+  }
+}
+
+unsigned long wpmfs_reget_blocknr(struct super_block *sb, u64 blockoff) {
+  wb *_wb = (wb *)(&blockoff);
+
+  switch (_wb->vlocation) {
+    case 0:
+      return blockoff >> PAGE_SHIFT;
+
+    case 2: {
+      mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
+      return le64_to_cpu(mptable[_wb->val >> PAGE_SHIFT].blocknr);
+    }
+
+    default:
+      wpmfs_assert(0);
+      return 0;
+  }
+}
+
+// TODO: 考虑如何 unmap
+// TODO：放进事务里面
+// 因为 inode 及 log 中均存储 blockoff，因此这里也返回 blockoff
+wb wpmfs_map_dynamic_page(struct super_block *sb, u64 blocknr) {
+  extern int vmap_page_range(unsigned long start, unsigned long end,
+                             pgprot_t prot, struct page **pages);
+
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
+  wb blockoff;
+  u64 size = sbi->vmapi.size_dynamic, index = size >> PAGE_SHIFT;
+  unsigned long start_addr = (unsigned long)(sbi->vmapi.base_dynamic + size);
+  struct page *page;
+
+  blockoff = wpmfs_get_blockoff(sb, blocknr, 0);
+  page = pfn_to_page(wpmfs_get_pfn(sb, blockoff.blockoff));
+  vmap_page_range(start_addr, start_addr + PAGE_SIZE, PAGE_KERNEL, &page);
+  wpmfs_mark_page(page, wpmfs_page_marks(page),
+                  WPMFS_PAGE_USING | WPMFS_PAGE_VMAP | WPMFS_PAGE_VMAP_DYNAMIC);
+  page->index = index;
+  blockoff.val = size;
+  blockoff.vlocation = 2;
+
+  PM_EQU(mptable[index].blocknr, cpu_to_le64(blocknr));
+  pmfs_flush_buffer(mptable + size, sizeof(*mptable), true);
+
+  sbi->vmapi.size_dynamic += PAGE_SIZE;
+
+  return blockoff;
+}
+
+u64 wpmfs_reget_blockoff(struct super_block *sb, void *addr) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  wb blockoff = {0};
+
+  if (!is_vmalloc_addr(addr)) {
+    blockoff.val = (u64)(addr - sbi->virt_addr);
+    blockoff.vlocation = 0;
+    return blockoff.blockoff;
+  }
+
+  if (addr >= sbi->vmapi.base_static &&
+      addr < (sbi->vmapi.base_static + sbi->vmapi.size_static)) {
+    blockoff.val = (u64)(addr - sbi->vmapi.base_static);
+    blockoff.vlocation = 1;
+    return blockoff.blockoff;
+  }
+
+  if (addr >= sbi->vmapi.base_dynamic &&
+      addr < (sbi->vmapi.base_dynamic + sbi->vmapi.size_dynamic)) {
+    blockoff.val = (u64)(addr - sbi->vmapi.base_dynamic);
+    blockoff.vlocation = 2;
+    return blockoff.blockoff;
+  }
+
+  wpmfs_assert(0);
+  return blockoff.blockoff;
+}
+
+void *wpmfs_reget_mptable_slot(struct super_block *sb, struct page *page) {
+  bool vmap_dynamic = wpmfs_page_marks(page) & WPMFS_PAGE_VMAP_DYNAMIC;
+
+  if (!vmap_dynamic)
+    return wpmfs_get_mptable_static(sb) + page->index;
+  else
+    return wpmfs_get_mptable_dynamic(sb) + page->index;
+}
+
+/*************************************************
+ * Reserve Blocks for WPMFS
+ *************************************************/
+
+static bool setup_vmap_static(struct super_block *sb,
+                              u64 *reserved_memory_size) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct wpmfs_mptables *mptables = wpmfs_get_mptables(sb);
+  mptable_slot_t *mptable = wpmfs_get_mptable_static(sb);
+  u64 rsrv_mem_size, rsrv_mem_pages;
+  u64 map_size, map_pages;
+  struct page **ppages = NULL;
+  void *vmaddr;
+  u64 cur_slot;
+  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
+  bool succ = false;
+
+  PM_EQU(mptables->mptable_static.num_pages, 0);
+
+  rsrv_mem_size = *reserved_memory_size;
+  rsrv_mem_size = (rsrv_mem_size + (PAGE_SIZE - 1)) & PAGE_MASK;
+  rsrv_mem_pages = rsrv_mem_size >> PAGE_SHIFT;
+
+  map_size = sizeof(struct wpmfs_mptables);
+  map_size += rsrv_mem_pages * sizeof(mptable_slot_t);
+  map_size = (map_size + (PAGE_SIZE - 1)) & PAGE_MASK;
+  map_pages = map_size >> PAGE_SHIFT;
+
+  ppages = (struct page **)vmalloc(rsrv_mem_pages * sizeof(struct page *));
+  if (!ppages) goto out_nomem;
+
+  for (cur_slot = 0; cur_slot < rsrv_mem_pages; ++cur_slot) {
+    u64 blocknr = map_pages + cur_slot;
+    struct page *page = pfn_to_page(pfn0 + blocknr);
+    PM_EQU(mptable[cur_slot].blocknr, cpu_to_le64(blocknr));
+    ppages[cur_slot] = page;
+
+    wpmfs_mark_page(page, wpmfs_page_marks(page),
+                    WPMFS_PAGE_USING | WPMFS_PAGE_VMAP);
+    page->index = cur_slot;
+  }
+
+  vmaddr = vmap(ppages, rsrv_mem_pages, VM_MAP, PAGE_KERNEL);
+  vfree(ppages);
+  ppages = NULL;
+  if (!vmaddr) goto out_nomem;
+
+  sbi->vmapi.base_static = vmaddr;
+  sbi->vmapi.size_static = rsrv_mem_size;
+
+  pmfs_flush_buffer(mptables, map_size, true);
+  PM_EQU(mptables->mptable_static.num_pages, cpu_to_le64(rsrv_mem_pages));
+  pmfs_flush_buffer(mptables, sizeof(struct wpmfs_mptables), true);
+
+  *reserved_memory_size += map_size;
+  succ = true;
+
+out_nomem:
+  if (ppages) vfree(ppages);
+  return succ;
+}
+
+static bool setup_vmap_dynamic(struct super_block *sb,
+                               u64 *reserved_memory_size) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct wpmfs_mptables *mptables = wpmfs_get_mptables(sb);
+  struct vm_struct *area;
+  u64 cur_page;
+  u64 map_size = PAGE_SIZE * 10, map_pages;
+  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
+  const u64 vm_size = 1024 * 1024 * 1024;
+  bool succ = false;
+
+  map_size = (map_size + (PAGE_SIZE - 1)) & PAGE_MASK;
+  map_pages = map_size >> PAGE_SHIFT;
+
+  for (cur_page = 0; cur_page < map_pages; ++cur_page) {
+    u64 blocknr = ((*reserved_memory_size) >> PAGE_SHIFT) + cur_page;
+    struct page *page = pfn_to_page(pfn0 + blocknr);
+    void *block = wpmfs_get_block(sb, pmfs_get_block_off(sb, blocknr, 0));
+
+    PM_MEMSET(block, 0, PAGE_SIZE);
+    pmfs_flush_buffer(block, PAGE_SIZE, false);
+    wpmfs_mark_page(page, wpmfs_page_marks(page),
+                    WPMFS_PAGE_USING | WPMFS_PAGE_VMAP_DYNAMIC);
+  }
+
+  mptables->mptable_dynamic.head_blocknr =
+      cpu_to_le64((*reserved_memory_size) >> PAGE_SHIFT);
+  pmfs_flush_buffer(mptables, sizeof(struct wpmfs_mptables), true);
+
+  area = get_vm_area_caller(vm_size, VM_MAP, __builtin_return_address(0));
+  if (!area) goto out_nomem;
+  sbi->vmapi.base_dynamic = area->addr;
+  sbi->vmapi.size_dynamic = 0;
+
+  *reserved_memory_size += map_size;
+  succ = true;
+
+out_nomem:
+  return succ;
+}
+
+int wpmfs_setup_memory(struct super_block *sb, u64 *reserved_memory_size) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  bool succ = false;
+  INIT_TIMING(setup_vmap_time);
+
+  if (!sbi->vmapi.enabled) goto out_succ;
+
+  PMFS_START_TIMING(setup_vmap_t, setup_vmap_time);
+
+  if (!setup_vmap_static(sb, reserved_memory_size)) goto out_fail;
+  if (!setup_vmap_dynamic(sb, reserved_memory_size)) goto out_fail;
+
+out_succ:
+  succ = true;
+
+out_fail:
+  PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
+  return succ;
 }

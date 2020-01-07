@@ -23,6 +23,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include "pmfs.h"
+#include "wpmfs_wl.h"
 
 /*************************************************
  * SN: 0
@@ -39,20 +40,17 @@ struct scan_bitmap {
 
 static void wpmfs_inode_crawl_recursive(struct super_block *sb,
                                         struct scan_bitmap *bm,
-                                        unsigned long block, u32 height,
+                                        unsigned long blockoff, u32 height,
                                         u8 btype) {
   __le64 *node;
+  unsigned long pfn0 = PMFS_SB(sb)->phys_addr >> PAGE_SHIFT;
+  u64 blocknr = wpmfs_get_pfn(sb, blockoff) - pfn0;
   unsigned int i;
 
-  if (height == 0) {
-    /* This is the data block */
-    wpmfs_assert(btype == PMFS_BLOCK_TYPE_4K);
-    set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
-    return;
-  }
+  set_bit(blocknr, bm->bitmap_4k);
+  if (height == 0) return;
 
-  node = pmfs_get_block(sb, block);
-  set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
+  node = wpmfs_get_block(sb, blockoff);
   for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
     if (node[i] == 0) continue;
     wpmfs_inode_crawl_recursive(sb, bm, le64_to_cpu(node[i]), height - 1,
@@ -70,20 +68,21 @@ static inline void wpmfs_inode_crawl(struct super_block *sb,
 
 static void wpmfs_inode_table_crawl_recursive(struct super_block *sb,
                                               struct scan_bitmap *bm,
-                                              unsigned long block, u32 height,
-                                              u32 btype) {
+                                              unsigned long blockoff,
+                                              u32 height, u32 btype) {
   __le64 *node;
   unsigned int i;
   struct pmfs_inode *pi;
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  unsigned long pfn0 = PMFS_SB(sb)->phys_addr >> PAGE_SHIFT;
+  u64 blocknr = wpmfs_get_pfn(sb, blockoff) - pfn0;
 
-  node = wpmfs_get_block(sb, block);
+  set_bit(blocknr, bm->bitmap_4k);
+  node = wpmfs_get_block(sb, blockoff);
+  wpmfs_error("blockoff = %lx.\n", blockoff);
 
   if (height == 0) {
     unsigned int inodes_per_block = INODES_PER_BLOCK(btype);
-    wb *blockoff = (wb *)&block;
-    wpmfs_assert(btype == PMFS_BLOCK_TYPE_4K);
-    set_bit(blockoff->val >> PAGE_SHIFT, bm->bitmap_4k);
 
     sbi->s_inodes_count += inodes_per_block;
     for (i = 0; i < inodes_per_block; i++) {
@@ -99,7 +98,6 @@ static void wpmfs_inode_table_crawl_recursive(struct super_block *sb,
     return;
   }
 
-  set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
   for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
     if (node[i] == 0) continue;
     wpmfs_inode_table_crawl_recursive(sb, bm, le64_to_cpu(node[i]), height - 1,
@@ -683,4 +681,109 @@ end:
   }
 
   return 0;
+}
+
+/*************************************************
+ * Reserve Blocks for WPMFS
+ *************************************************/
+
+static bool recv_vmap_static(struct super_block *sb) {
+  struct page **ppages;
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct wpmfs_mptables *mptables = wpmfs_get_mptables(sb);
+  mptable_slot_t *mptable = wpmfs_get_mptable_static(sb);
+  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
+  u64 mptable_size, num_pages, cur_page;
+  void *vmaddr;
+  bool succ = false;
+
+  // mark pages for mptables as "using"
+  num_pages = le64_to_cpu(mptables->mptable_static.num_pages);
+  mptable_size = num_pages * sizeof(struct wpmfs_pgtable_slot) +
+                 sizeof(struct wpmfs_mptables);
+  mptable_size = (mptable_size + (PAGE_SIZE - 1)) & PAGE_MASK;
+  num_pages = mptable_size >> PAGE_SHIFT;
+
+  for (cur_page = 0; cur_page <= num_pages; ++cur_page) {
+    unsigned long pfn = pfn0 + cur_page;
+    struct page *page = pfn_to_page(pfn);
+    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
+  }
+
+  // remap static reserved memory to vmalloc space
+  num_pages = le64_to_cpu(mptables->mptable_static.num_pages);
+
+  ppages = (struct page **)vmalloc(num_pages * sizeof(struct page *));
+  if (!ppages) goto out_nomem;
+
+  for (cur_page = 0; cur_page <= num_pages; ++cur_page) {
+    u64 blocknr = le64_to_cpu(mptable[cur_page].blocknr);
+    struct page *page = pfn_to_page(pfn0 + blocknr);
+
+    ppages[cur_page] = page;
+    wpmfs_mark_page(page, wpmfs_page_marks(page),
+                    WPMFS_PAGE_VMAP | WPMFS_PAGE_USING);
+    page->index = cur_page;
+  }
+
+  vmaddr = vmap(ppages, num_pages, VM_MAP, PAGE_KERNEL);
+  if (!vmaddr) goto out_nomem;
+  sbi->vmapi.base_static = vmaddr;
+  sbi->vmapi.size_static = num_pages << PAGE_SHIFT;
+
+  succ = true;
+
+out_nomem:
+  if (ppages) vfree(ppages);
+  return succ;
+}
+
+static bool recv_vmap_dynamic(struct super_block *sb) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
+  struct vm_struct *area;
+  u64 cur_page;
+  bool succ = false;
+
+  area = get_vm_area_caller(1024 * 1024 * 1024, VM_MAP,
+                            __builtin_return_address(0));
+  if (!area) goto out_nomem;
+  sbi->vmapi.base_dynamic = area->addr;
+  sbi->vmapi.size_dynamic = 0;
+
+  for (cur_page = 0; cur_page < 10; ++cur_page) {
+    unsigned long pfn = (virt_to_phys(mptable) >> PAGE_SHIFT) + cur_page;
+    struct page *page = pfn_to_page(pfn);
+    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
+  }
+
+  for (cur_page = 0; mptable[cur_page].blocknr; ++cur_page) {
+    u64 blocknr = le64_to_cpu(mptable[cur_page].blocknr);
+    wpmfs_map_dynamic_page(sb, blocknr);
+  }
+
+  succ = true;
+
+out_nomem:
+  return succ;
+}
+
+bool wpmfs_recv_memory(struct super_block *sb) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  bool succ = false;
+  INIT_TIMING(setup_vmap_time);
+
+  if (!sbi->vmapi.enabled) goto out_succ;
+
+  PMFS_START_TIMING(setup_vmap_t, setup_vmap_time);
+
+  if (!recv_vmap_static(sb)) goto out_fail;
+  if (!recv_vmap_dynamic(sb)) goto out_fail;
+
+out_succ:
+  succ = true;
+
+out_fail:
+  PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
+  return succ;
 }

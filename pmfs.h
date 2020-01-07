@@ -247,10 +247,18 @@ struct allocator_factory {
 };
 extern struct allocator_factory Allocator;
 extern bool wpmfs_select_allocator(int alloc);
+extern unsigned long wpmfs_get_pfn(struct super_block *sb, u64 blockoff);
+extern unsigned long wpmfs_reget_blocknr(struct super_block *sb, u64 blockoff);
+extern u64 wpmfs_reget_blockoff(struct super_block *sb, void *addr);
+extern int wpmfs_setup_memory(struct super_block *sb,
+                              u64 *reserved_memory_size);
+extern bool wpmfs_recv_memory(struct super_block *sb);
+extern void *wpmfs_reget_mptable_slot(struct super_block *sb,
+                                         struct page *page);
 
 // for wpmfs's simplest allocator
 extern int wpmfs_new_block(struct super_block *sb, unsigned long *blocknr,
-                    unsigned short btype, int zero);
+                    unsigned short b, int zero);
 extern void wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
                       unsigned short btype);
 extern void __wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
@@ -397,7 +405,7 @@ struct wpmfs_vmap_info {
 
 	// map part of dynamicly allocated memory to vmalloc space
   void *base_dynamic;
-  u64 num_dynamic_pages;
+	u64 size_dynamic;
 };
 
 /*
@@ -519,11 +527,15 @@ static void *wpmfs_get_block(struct super_block *sb, u64 blockoff) {
     case 0:
 		vmap_disabled:
       return _wb->val ? (void *)sbi->virt_addr + _wb->val : NULL;
+
     case 1:
 			if(!sbi->vmapi.enabled) goto vmap_disabled;
+			PMFS_ASSERT(_wb->val >=0 && _wb->val <= sbi->vmapi.size_static);
       return _wb->val ? (void *)sbi->vmapi.base_static + _wb->val : NULL;
+
     case 2:
 			if(!sbi->vmapi.enabled) goto vmap_disabled;
+			PMFS_ASSERT(_wb->val >=0 && _wb->val <= sbi->vmapi.size_dynamic);
       return (void *)sbi->vmapi.base_dynamic + _wb->val;
 
     default:
@@ -535,7 +547,6 @@ static void *wpmfs_get_block(struct super_block *sb, u64 blockoff) {
 static wb wpmfs_get_blockoff(struct super_block *sb, u64 blocknr,
                              u8 vlocation) {
   wb wblock = {0};
-
   switch (vlocation) {
     case 0:
     vmap_disabled:
@@ -554,8 +565,6 @@ static wb wpmfs_get_blockoff(struct super_block *sb, u64 blocknr,
 	wpmfs_assert(wblock.blockoff);
 	return wblock;
 }
-
-extern unsigned long wpmfs_get_pfn(struct super_block *sb, u64 blockoff);
 
 /* If this is part of a read-modify-write of the block,
  * pmfs_memunlock_block() before calling! */
@@ -814,36 +823,6 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 	return (struct pmfs_inode *)(wpmfs_get_block(sb, bp) + ino_offset);
 }
 
-//TODO: 像这种没必要内联的复杂函数，还是直接丢到别的文件里去吧
-static inline u64 wpmfs_reget_blockoff(struct super_block *sb, void *addr) {
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  wb blockoff = {0};
-
-  if (!is_vmalloc_addr(addr)) {
-    blockoff.val = (u64)(addr - sbi->virt_addr);
-    blockoff.vlocation = 0;
-    return blockoff.blockoff;
-  }
-
-  if (addr >= sbi->vmapi.base_static &&
-      addr < (sbi->vmapi.base_static + sbi->vmapi.size_static)) {
-    blockoff.val = (u64)(addr - sbi->vmapi.base_static);
-    blockoff.vlocation = 1;
-    return blockoff.blockoff;
-  }
-
-  if (addr >= sbi->vmapi.base_dynamic &&
-      addr < (sbi->vmapi.base_dynamic +
-              PAGE_SIZE * sbi->vmapi.num_dynamic_pages)) {
-    blockoff.val = (u64)(addr - sbi->vmapi.base_dynamic);
-    blockoff.vlocation = 2;
-    return blockoff.blockoff;
-  }
-
-  wpmfs_assert(0);
-  return blockoff.blockoff;
-}
-
 static inline u64
 pmfs_get_block_off(struct super_block *sb, unsigned long blocknr,
 		    unsigned short btype)
@@ -865,12 +844,6 @@ pmfs_get_numblocks(unsigned short btype)
 		num_blocks = 0x40000;
 	}
 	return num_blocks;
-}
-
-static inline unsigned long
-pmfs_get_blocknr(struct super_block *sb, u64 block, unsigned short btype)
-{
-	return block >> PAGE_SHIFT;
 }
 
 static inline int pmfs_is_mounting(struct super_block *sb)

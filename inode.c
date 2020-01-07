@@ -267,8 +267,7 @@ static int recursive_truncate_blocks(struct super_block *sb, __le64 block,
 			if (unlikely(!node[i]))
 				continue;
 			/* Freeing the data block */
-			blocknr = pmfs_get_blocknr(sb, le64_to_cpu(node[i]),
-				    btype);
+			blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(node[i]));
 			Allocator.__pmfs_free_block(sb, blocknr, btype, (void **)&start_hint);
 			freed++;
 		}
@@ -288,8 +287,7 @@ static int recursive_truncate_blocks(struct super_block *sb, __le64 block,
 			/* cond_resched(); */
 			if (mpty) {
 				/* Freeing the meta-data block */
-				blocknr = pmfs_get_blocknr(sb, le64_to_cpu(
-					    node[i]), PMFS_BLOCK_TYPE_4K);
+				blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(node[i]));
 				Allocator.pmfs_free_block(sb, blocknr,PMFS_BLOCK_TYPE_4K);
 			} else {
 				if (i == first_index)
@@ -330,8 +328,7 @@ unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 
 	PMFS_START_TIMING(free_tree_t, free_time);
 	if (height == 0) {
-		first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
-			btype);
+		first_blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(root));
 		Allocator.pmfs_free_block(sb, first_blocknr, btype);
 		freed = 1;
 	} else {
@@ -340,8 +337,7 @@ unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 		freed = recursive_truncate_blocks(sb, root, height, btype,
 			first_blocknr, last_blocknr, &mpty);
 		BUG_ON(!mpty);
-		first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
-			PMFS_BLOCK_TYPE_4K);
+		first_blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(root));
 		Allocator.pmfs_free_block(sb, first_blocknr,PMFS_BLOCK_TYPE_4K);
 	}
 	PMFS_END_TIMING(free_tree_t, free_time);
@@ -374,8 +370,7 @@ static void pmfs_decrease_btree_height(struct super_block *sb,
 	while (height > new_height) {
 		/* freeing the meta block */
 		root = wpmfs_get_block(sb, le64_to_cpu(newroot));
-		blocknr = pmfs_get_blocknr(sb, le64_to_cpu(newroot),
-			PMFS_BLOCK_TYPE_4K);
+		blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(newroot));
 		newroot = root[0];
 		Allocator.pmfs_free_block(sb, blocknr, PMFS_BLOCK_TYPE_4K);
 		height--;
@@ -474,8 +469,7 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 	root = pi->root;
 
 	if (pi->height == 0) {
-		first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
-			pi->i_blk_type);
+		first_blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(root));
 		Allocator.pmfs_free_block(sb, first_blocknr, pi->i_blk_type);
 		root = 0;
 		freed = 1;
@@ -483,8 +477,7 @@ static void __pmfs_truncate_blocks(struct inode *inode, loff_t start,
 		freed = recursive_truncate_blocks(sb, root, pi->height,
 			pi->i_blk_type, first_blocknr, last_blocknr, &mpty);
 		if (mpty) {
-			first_blocknr = pmfs_get_blocknr(sb, le64_to_cpu(root),
-				PMFS_BLOCK_TYPE_4K);
+			first_blocknr = wpmfs_reget_blocknr(sb, le64_to_cpu(root));
 			Allocator.pmfs_free_block(sb, first_blocknr, PMFS_BLOCK_TYPE_4K);
 			root = 0;
 		}

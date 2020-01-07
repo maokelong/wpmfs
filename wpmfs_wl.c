@@ -14,57 +14,6 @@
 #include "pmfs.h"
 #include "wpmfs_wt.h"
 
-unsigned long wpmfs_get_pfn(struct super_block *sb, u64 blockoff) {
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
-  wb *_wb = (wb *)(&blockoff);
-
-  switch (_wb->vlocation) {
-    case 0:
-      return pfn0 + (blockoff >> PAGE_SHIFT);
-    case 2: {
-      mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
-      return pfn0 + le64_to_cpu(mptable[_wb->val >> PAGE_SHIFT].blocknr);
-    }
-    default:
-      wpmfs_assert(0);
-      return 0;
-  }
-}
-
-// TODO: 考虑如何 unmap
-// TODO：放进事务里面
-// 因为 inode 及 log 中均存储 blockoff，因此这里也返回 blockoff
-wb wpmfs_map_dynamic_page(struct super_block *sb, u64 blocknr) {
-  extern int vmap_page_range(unsigned long start, unsigned long end,
-                             pgprot_t prot, struct page **pages);
-
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
-  wb blockoff;
-  unsigned long start_addr =
-      (unsigned long)(sbi->vmapi.base_dynamic +
-                      PAGE_SIZE * sbi->vmapi.num_dynamic_pages);
-  struct page *page;
-
-  blockoff = wpmfs_get_blockoff(sb, blocknr, 0);
-  page = pfn_to_page(wpmfs_get_pfn(sb, blockoff.blockoff));
-  vmap_page_range(start_addr, start_addr + PAGE_SIZE, PAGE_KERNEL, &page);
-  wpmfs_mark_page(page, wpmfs_page_marks(page),
-                  WPMFS_PAGE_USING | WPMFS_PAGE_VMAP | WPMFS_PAGE_VMAP_DYNAMIC);
-  page->index = sbi->vmapi.num_dynamic_pages;
-  blockoff.val = PAGE_SIZE * sbi->vmapi.num_dynamic_pages;
-  blockoff.vlocation = 2;
-
-  PM_EQU(mptable[sbi->vmapi.num_dynamic_pages].blocknr, cpu_to_le64(blocknr));
-  pmfs_flush_buffer(mptable + sbi->vmapi.num_dynamic_pages, sizeof(*mptable),
-                    true);
-
-  // 目前只有一个进程能访问，因此无需担心线程安全问题
-  sbi->vmapi.num_dynamic_pages++;
-  return blockoff;
-}
-
 // https://elixir.bootlin.com/linux/v4.19.49/source/fs/dax.c#L70
 #define RADIX_DAX_SHIFT (RADIX_TREE_EXCEPTIONAL_SHIFT + 4)
 #define RADIX_DAX_ENTRY_LOCK (1 << RADIX_TREE_EXCEPTIONAL_SHIFT)
@@ -460,7 +409,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
   new_pte = mk_pte(new_page, PAGE_KERNEL);
 
   // 获取 mptable 表项
-  mptable_slot = wpmfs_get_pgtable_slot(sb, page->index);
+  mptable_slot = (mptable_slot_t *)wpmfs_reget_mptable_slot(sb, page);
 
   // copy the page content
   // 此处引入了新型的页保护错误，所以我们在 page.c 中相应地添加了一条新路径
@@ -525,8 +474,7 @@ static void _wear_lerveling(struct super_block *sb, unsigned long pfn) {
       break;
 
     case TYPE_STRANDED:
-      if (_int_ctrl.wl_switch & 0x4)
-        _level_type_stranded(sb, pfn);
+      if (_int_ctrl.wl_switch & 0x4) _level_type_stranded(sb, pfn);
       break;
 
     default:
@@ -570,143 +518,32 @@ void wpmfs_int_top(unsigned long pfn) {
         "kfifo for workqueue has full. pfn intended to insert is %lu.\n", pfn);
 }
 
-static int _init_int(struct super_block *sb) {
-  int rc = 0;
+static bool _init_int(struct super_block *sb) {
+  int succ = false;
+
   /* Init spinlock and kfifo */
-  rc = kfifo_alloc(&_int_ctrl.fifo, sizeof(unsigned long) * (1 << 10),
-                   GFP_KERNEL);
-  if (rc) {
+  if (kfifo_alloc(&_int_ctrl.fifo, sizeof(unsigned long) * (1 << 10),
+                  GFP_KERNEL)) {
     wpmfs_error("Cannot create kfifo\n");
-    return -ENOMEM;
+    kfifo_free(&_int_ctrl.fifo);
+    goto out_fail;
   }
 
   spin_lock_init(&_int_ctrl.fifo_lock);
 
-  // TODO: to enable multithread wear-leveling in the future.
-  /* Create a workqueue to avoid causing delays for other queue users. */
+  /* Create a workqueue to avoid disturbing other queue users. */
   _int_ctrl.workqueue = create_singlethread_workqueue("wpmfs_wear_leveling");
   if (!_int_ctrl.workqueue) {
     wpmfs_error("Cannot create workqueue\n");
-    return -ENOMEM;
+    goto out_fail;
   }
 
   /* Init work */
   INIT_WORK(&_int_ctrl.work, _int_bottom);
-  return rc;
-}
+  succ = true;
 
-static int _init_mem_hard(struct super_block *sb, u64 *reserved_memory_size) {
-  // 加载预分配内存
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  struct wpmfs_mptable_meta *pvmap = wpmfs_get_mptable_meta(sb);
-  struct page **ppages_static, **ppages_dynamic;
-  void *vmaddr;
-  u64 map_size, map_pages, prealloc_memory_pages;
-  u64 m4m_size, m4m_pages;
-  u64 map_dynamic_size = PAGE_SIZE * 10, map_dynamic_pages;
-  u64 cur_slot;
-  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
-  int ret;
-  m4m_slot_t *m4m_slot;
-  mptable_slot_t *mptable;
-  u64 prealloc_memory_size = *reserved_memory_size;
-  struct vm_struct *area;
-  INIT_TIMING(setup_vmap_time);
-
-  PMFS_START_TIMING(setup_vmap_t, setup_vmap_time);
-  // 计算映射表相关属性
-  prealloc_memory_size = (prealloc_memory_size + (PAGE_SIZE - 1)) & PAGE_MASK;
-  prealloc_memory_pages = prealloc_memory_size >> PAGE_SHIFT;
-  map_size = prealloc_memory_pages * sizeof(mptable_slot_t);
-  map_size = (map_size + (PAGE_SIZE - 1)) & PAGE_MASK;
-  map_pages = map_size >> PAGE_SHIFT;
-
-  // 计算映射表的映射表相关属性
-  m4m_size = map_pages * sizeof(m4m_slot_t) + sizeof(struct wpmfs_mptable_meta);
-  m4m_size = (m4m_size + (PAGE_SIZE - 1)) & PAGE_MASK;
-  m4m_pages = m4m_size >> PAGE_SHIFT;
-
-  // 计算动态映射表
-  map_dynamic_size = (map_dynamic_size + (PAGE_SIZE - 1)) & PAGE_MASK;
-  map_dynamic_pages = map_dynamic_size >> PAGE_SHIFT;
-
-  // 最初，预分配（预留）区域对应的物理内存紧随两个映射表之后，
-  // 然后线性地映射到 vmalloc space。
-  PM_EQU(pvmap->num_prealloc_pages, 0);
-
-  // 填充 m4m slots，mptable 紧随 m4m
-  m4m_slot = wpmfs_get_m4m(sb, NULL);
-  for (cur_slot = 0; cur_slot < map_pages; ++cur_slot) {
-    PM_EQU(m4m_slot[cur_slot].frag_blocknr, cpu_to_le64(m4m_pages + cur_slot));
-    // 不设置为 WPMFS_PAGE_USING，就不会对其进行损耗均衡
-  }
-
-  // 填充 pgtable slots，prealloc pages 紧随 pgtable
-  // 同时登记映射到 vmalloc space 的页
-  ppages_static =
-      (struct page **)vmalloc(prealloc_memory_pages * sizeof(struct page *));
-  ppages_dynamic =
-      (struct page **)vmalloc(map_dynamic_pages * sizeof(struct page *));
-  if (!ppages_static) goto out_nomem;
-  if (!ppages_dynamic) {
-    vfree(ppages_static);
-    goto out_nomem;
-  }
-
-  mptable = (mptable_slot_t *)((u8 *)pvmap + m4m_size);
-  for (cur_slot = 0; cur_slot < prealloc_memory_pages; ++cur_slot) {
-    u64 blocknr = m4m_pages + map_pages + cur_slot;
-    struct page *page = pfn_to_page(pfn0 + blocknr);
-    PM_EQU(mptable[cur_slot].blocknr, cpu_to_le64(blocknr));
-    ppages_static[cur_slot] = page;
-    wpmfs_mark_page(page, wpmfs_page_marks(page),
-                    WPMFS_PAGE_USING | WPMFS_PAGE_VMAP);
-    page->index = cur_slot;
-  }
-
-  // 持久化两张表，随后登记预分配内存总页数
-  pmfs_flush_buffer(pvmap, m4m_size + map_size, true);
-  PM_EQU(pvmap->num_prealloc_pages, cpu_to_le64(prealloc_memory_pages));
-  pmfs_flush_buffer(pvmap, sizeof(struct wpmfs_mptable_meta), true);
-
-  // map given pages to vmalloc space through vmap
-  vmaddr = vmap(ppages_static, prealloc_memory_pages, VM_MAP, PAGE_KERNEL);
-  vfree(ppages_static);
-  if (!vmaddr) goto out_nomem;
-  sbi->vmapi.base_static = vmaddr;
-  sbi->vmapi.size_static = *reserved_memory_size;
-  *reserved_memory_size += map_size + m4m_size;
-
-  // TODO：有空的话做个拆分，以前没想到这里会塞进去这么多东西
-  pvmap->mptable_blocknr = cpu_to_le64((*reserved_memory_size) >> PAGE_SHIFT);
-  for (cur_slot = 0; cur_slot < map_dynamic_pages; ++cur_slot) {
-    u64 blocknr = ((*reserved_memory_size) >> PAGE_SHIFT) + cur_slot;
-    struct page *page = pfn_to_page(pfn0 + blocknr);
-    PM_MEMSET(pmfs_get_block(sb, pmfs_get_block_off(sb, blocknr, 0)), 0,
-              PAGE_SIZE);
-    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
-  }
-
-  area = get_vm_area_caller(1024 * 1024 * 1024, VM_MAP,
-                            __builtin_return_address(0));
-  if (!area) {
-    vunmap(vmaddr);
-    goto out_nomem;
-  }
-  vmaddr = area->addr;
-
-  sbi->vmapi.base_dynamic = vmaddr;
-  sbi->vmapi.num_dynamic_pages = 0;
-
-  *reserved_memory_size += map_dynamic_size;
-  PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
-
-  ret = 0;
-  return ret;
-
-out_nomem:
-  ret = -ENOMEM;
-  return ret;
+out_fail:
+  return succ;
 }
 
 static void *_borrow_symbol(char *sym_name) {
@@ -734,127 +571,24 @@ static bool _check_congfigs(void) {
   return true;
 }
 
-int wpmfs_init_hard(struct super_block *sb, u64 *reserved_memory_size) {
-  // TODO: to replace pmfs_init
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  int errno;
-  if (!_check_congfigs()) return -1;
-  if (!_borrow_symbols()) return -1;
+int wpmfs_init(struct super_block *sb, u64 *reserved_memory_size) {
+  if (!_check_congfigs()) return -EPERM;
+  if (!_borrow_symbols()) return -EPERM;
 
   wpmfs_init_all_cnter();
-  if ((errno = _init_int(sb)) != 0) return errno;
-  if (!sbi->vmapi.enabled) return 0;
-  if ((errno = _init_mem_hard(sb, reserved_memory_size)) != 0) return errno;
+
+  if (!_init_int(sb)) return -ENOMEM;
+  if (!wpmfs_setup_memory(sb, reserved_memory_size)) return -ENOMEM;
 
   return 0;
 }
 
-static int _init_mem_soft(struct super_block *sb) {
-  // 加载预分配内存
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  struct wpmfs_mptable_meta *pvmap = wpmfs_get_mptable_meta(sb);
-  struct page **ppages_static;
-  void *vmaddr;
-  u64 num_m4m_slots, cur_m4m_page, cur_m4m_slot, cur_mptable_slot,
-      cur_dynamic_page, cur_mptable_dynamic_page;
-  unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
-  int ret;
-  m4m_slot_t *m4m_base;
-  int m4m_pages;
-  mptable_slot_t *mptable_dynamic;
-  struct vm_struct *area;
-  INIT_TIMING(setup_vmap_time);
+int wpmfs_recv(struct super_block *sb) {
+  if (!_check_congfigs()) return -EPERM;
+  if (!_borrow_symbols()) return -EPERM;
 
-  // 同时登记映射到 vmalloc space 的页
-  PMFS_START_TIMING(setup_vmap_t, setup_vmap_time);
-  ppages_static = (struct page **)vmalloc(pvmap->num_prealloc_pages *
-                                          sizeof(struct page *));
-  if (!ppages_static) goto out_nomem;
-
-  m4m_base = wpmfs_get_m4m(sb, &num_m4m_slots);
-  m4m_pages = (round_up((unsigned long)(m4m_base + num_m4m_slots), PAGE_SIZE) -
-               round_down((unsigned long)m4m_base, PAGE_SIZE)) /
-              PAGE_SIZE;
-
-  // mark m4m pages using
-  for (cur_m4m_page = 0; cur_m4m_page < m4m_pages; ++cur_m4m_page) {
-    unsigned long pfn = (virt_to_phys(m4m_base) >> PAGE_SHIFT) + cur_m4m_page;
-    struct page *page = pfn_to_page(pfn);
-    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
-  }
-
-  // bookkeeping vmap pages
-  for (cur_m4m_slot = 0; cur_m4m_slot < num_m4m_slots; ++cur_m4m_slot) {
-    u64 frag_blocknr = le64_to_cpu(m4m_base[cur_m4m_slot].frag_blocknr);
-    u64 frag_blockoff = pmfs_get_block_off(sb, frag_blocknr, 0);
-    mptable_slot_t *frag_base =
-        (mptable_slot_t *)pmfs_get_block(sb, frag_blockoff);
-    struct page *frag_page = pfn_to_page(virt_to_phys(frag_base) >> PAGE_SHIFT);
-
-    // mark mptable pages using
-    wpmfs_mark_page(frag_page, wpmfs_page_marks(frag_page), WPMFS_PAGE_USING);
-    for (cur_mptable_slot = 0; cur_mptable_slot < frag_mptable_slots();
-         ++cur_mptable_slot) {
-      pgoff_t index = cur_m4m_slot * frag_mptable_slots() + cur_mptable_slot;
-      u64 blocknr = le64_to_cpu(frag_base[cur_mptable_slot].blocknr);
-      struct page *page = pfn_to_page(pfn0 + blocknr);
-
-      if (unlikely(index >= pvmap->num_prealloc_pages)) break;
-      ppages_static[index] = page;
-      wpmfs_mark_page(page, wpmfs_page_marks(page),
-                      WPMFS_PAGE_VMAP | WPMFS_PAGE_USING);
-      page->index = index;
-    }
-  }
-
-  // map given pages to vmalloc space through vmap
-  vmaddr = vmap(ppages_static, pvmap->num_prealloc_pages, VM_MAP, PAGE_KERNEL);
-  vfree(ppages_static);
-  if (!vmaddr) goto out_nomem;
-  sbi->vmapi.base_static = vmaddr;
-  sbi->vmapi.size_static = pvmap->num_prealloc_pages * PAGE_SIZE;
-  /* 恢复动态映射内存 */
-  area = get_vm_area_caller(1024 * 1024 * 1024, VM_MAP,
-                            __builtin_return_address(0));
-  if (!area) {
-    vunmap(vmaddr);
-    goto out_nomem;
-  }
-  sbi->vmapi.base_dynamic = area->addr;
-  sbi->vmapi.num_dynamic_pages = 0;
-
-  mptable_dynamic = wpmfs_get_mptable_dynamic(sb);
-  for (cur_mptable_dynamic_page = 0; cur_mptable_dynamic_page < 10;
-       ++cur_mptable_dynamic_page) {
-    unsigned long pfn = (virt_to_phys(mptable_dynamic) >> PAGE_SHIFT) +
-                        cur_mptable_dynamic_page;
-    struct page *page = pfn_to_page(pfn);
-    wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
-  }
-
-  for (cur_dynamic_page = 0; mptable_dynamic[cur_dynamic_page].blocknr;
-       ++cur_dynamic_page) {
-    u64 blocknr = le64_to_cpu(mptable_dynamic[cur_dynamic_page].blocknr);
-    wpmfs_map_dynamic_page(sb, blocknr);
-  }
-
-  PMFS_END_TIMING(setup_vmap_t, setup_vmap_time);
-
-  ret = 0;
-  return ret;
-
-out_nomem:
-  ret = -ENOMEM;
-  return ret;
-}
-
-int wpmfs_init_soft(struct super_block *sb) {
-  int errno;
-  if (!_check_congfigs()) return -1;
-  if (!_borrow_symbols()) return -1;
-
-  if ((errno = _init_int(sb)) != 0) return errno;
-  if ((errno = _init_mem_soft(sb)) != 0) return errno;
+  if (!_init_int(sb)) return -ENOMEM;
+  if (!wpmfs_recv_memory(sb)) return -ENOMEM;
 
   return 0;
 }
@@ -909,7 +643,7 @@ void wpmfs_print_memory_layout(struct super_block *sb,
   void *pdatablk = pmfs_get_block(sb, datablk_off);
 
   if (!sbi->vmapi.enabled) return;
- 
+
   wpmfs_assert(wpmfs_get_block(sb, journal_meta->base) == journal_data);
   wpmfs_assert(cpu_to_le32(journal_meta->size) == sbi->jsize);
 
