@@ -182,6 +182,8 @@ enum {
 	Opt_vmap,
   Opt_wlsw,
 	Opt_alloc,
+	Opt_int_thres,
+	Opt_cell_endur,
   Opt_err
 };
 
@@ -206,6 +208,8 @@ static const match_table_t tokens = {
     {Opt_vmap, "vmap"},
     {Opt_wlsw, "wlsw=%u"},
     {Opt_alloc, "alloc=%u"},
+    {Opt_int_thres, "int_thres=%u"},
+    {Opt_cell_endur, "cell_endur=%u"},
     {Opt_err, NULL},
 };
 
@@ -330,7 +334,7 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			break;
 		case Opt_vmap:
 			sbi->vmapi.enabled = true;
-			pmfs_info("WPMFS: Enabling vmap\n");
+			pmfs_info("WellPM: Enabling vmap\n");
 			break;
 		case Opt_wlsw:
 			if (match_int(&args[0], &option))
@@ -342,6 +346,18 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 				goto bad_val;
 			if (!wpmfs_select_allocator(option))
 				goto bad_val;
+			break;
+		case Opt_int_thres:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			if(option < 12)
+				goto bad_val;
+			set_int_threshold(option);
+			break;
+		case Opt_cell_endur:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			set_cell_endurance(option);
 			break;
 		default: {
 			goto bad_opt;

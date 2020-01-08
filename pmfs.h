@@ -54,15 +54,15 @@
   (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
 #define prt_dbg(fmt, args...)                                            \
-  printk(KERN_DEBUG "wpmfs: %s @%s() #%d. " fmt, __FILENAME__, __func__, \
+  printk(KERN_DEBUG "WellPM: %s @%s() #%d. " fmt, __FILENAME__, __func__, \
          __LINE__, ##args)
 #define prt_err(fmt, args...)                                          \
-  printk(KERN_ERR "wpmfs: %s @%s() #%d. " fmt, __FILENAME__, __func__, \
+  printk(KERN_ERR "WellPM: %s @%s() #%d. " fmt, __FILENAME__, __func__, \
          __LINE__, ##args)
 #define prt_ast(x)                                                            \
   do {                                                                        \
     if (x) break;                                                             \
-    printk(KERN_ERR "wpmfs: %s @%s() #%d. Assertion failed.\n", __FILENAME__, \
+    printk(KERN_ERR "WellPM: %s @%s() #%d. Assertion failed.\n", __FILENAME__, \
            __func__, __LINE__);                                               \
     dump_stack();                                                             \
     BUG();                                                                    \
@@ -464,10 +464,10 @@ struct pmfs_sb_info {
 	/* truncate list related structures */
 	struct list_head s_truncate;
 	struct mutex s_truncate_lock;
-	/* wpmfs: vmalloc space management related structure */
+	/* WellPM: vmalloc space management related structure */
 	struct wpmfs_vmap_info vmapi;
 	
-	/* wpmfs: block management related structure */
+	/* WellPM: block management related structure */
 	int num_bins;
 	struct list_head *block_bins;
 	unsigned long	unused_block_low;

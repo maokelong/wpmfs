@@ -45,6 +45,8 @@ fi
 args=$args"dbgmask=$CONFIG_FS_DBGMASK,"
 args=$args"alloc=$CONFIG_FS_ALLOCATOR,"
 args=$args"wlsw=$CONFIG_FS_WL_SWITCH,"
+args=$args"int_thres=$CONFIG_FS_INT_THRES,"
+args=$args"cell_endur=$CONFIG_FS_CELL_ENDUR,"
 
 sudo mount -t $CONFIG_NAME_FS -o $args $CONFIG_PATH_PMEM_DEV $CONFIG_PATH_FS
 

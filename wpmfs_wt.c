@@ -4,17 +4,11 @@
 #include "pmfs.h"
 #include "xip.h"
 
-size_t _int_thres_power = INTERRUPT_THRESHOLD_POWER;
+size_t _int_thres_power = MIGRATION_THRESHOLD_POWER;
+size_t _cell_endur_power = CELL_ENDURANCE_POWER;
+
 struct wt_cnter_file _wt_cnter_file;
 unsigned long _pfn0;
-
-void set_int_threshold(int power) {
-  wpmfs_assert(power > 10 && power < 25);
-
-  _int_thres_power = power;
-  // to propogate the value of power
-  smp_rmb();
-}
 
 void wpmfs_init_all_cnter() {
   memset(_wt_cnter_file.base, 0, _wt_cnter_file.size);

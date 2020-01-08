@@ -19,26 +19,33 @@ extern void wpmfs_int_top(unsigned long pfn);
 #define wt_cnter_t atomic64_t
 
 /*************************************************
- * page suffering threshold
+ * Cell endurance and page migration threshold
  *************************************************/
 
-/* Whenever a page suffers 2^power writes, the memory controller will sigal a
- * inetrrupt, suggesting page migraition. */
-// TODO: 28
-#define INTERRUPT_THRESHOLD_POWER (17)
-#define CELL_ENDURANCE_POWER (INTERRUPT_THRESHOLD_POWER)
+#define MIGRATION_THRESHOLD_POWER (17)
+#define CELL_ENDURANCE_POWER (20)
 
 extern size_t _int_thres_power;
+extern size_t _cell_endur_power;
+
+static inline void set_int_threshold(int power) {
+  if(power < 12) BUG();
+  _cell_endur_power = power;
+  smp_rmb();
+}
 static inline uint64_t get_int_thres_size(void) {
   return 1 << _int_thres_power;
 }
 static inline uint64_t get_int_thres_mask(void) {
   return ~(get_int_thres_size() - 1);
 }
-extern void set_int_threshold(int power);
 
-static inline uint64_t get_cell_idea_endurance(void) {
-  return 1 << CELL_ENDURANCE_POWER;
+static inline void set_cell_endurance(int power) {
+  _int_thres_power = power;
+  smp_rmb();
+}
+static inline uint64_t get_cell_endurance(void) {
+  return 1 << _cell_endur_power;
 }
 
 /*************************************************

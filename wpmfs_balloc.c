@@ -15,13 +15,14 @@ void wpmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
 
   /* allocate page bins, the last bin helds worn out pages */
   sbi->num_bins =
-      get_cell_idea_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
+      get_cell_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
   sbi->block_bins = (struct list_head *)kmalloc_array(
       sbi->num_bins, sizeof(struct list_head), GFP_KERNEL);
   wpmfs_assert(sbi->block_bins);
   for (cur_bin = 0; cur_bin < sbi->num_bins; ++cur_bin) {
     INIT_LIST_HEAD(&sbi->block_bins[cur_bin]);
   }
+  pmfs_info("WellPM: number of bins equals %d.\n", sbi->num_bins);
 
   /* record all unused pages  */
   wpmfs_assert(sb->s_blocksize == PAGE_SIZE);

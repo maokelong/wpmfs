@@ -16,6 +16,8 @@ CONFIG_FS_ENABLE_TRACKING=1 # 1/0
 CONFIG_FS_ENABLE_VMAP=1 # 1/0
 CONFIG_FS_ALLOCATOR=0 # 0 for wpmfs; 1 for pmfs
 CONFIG_FS_WL_SWITCH=0 # 1 for rmap; 2 for vmap; 4 for stranded
+CONFIG_FS_INT_THRES=17 # in power
+CONFIG_FS_CELL_ENDUR=20 # in power
 
 # pmfs with vmap
 # pmfs with vmap、tracking and timing
