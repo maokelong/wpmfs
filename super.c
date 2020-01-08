@@ -534,9 +534,6 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
 
-	// 整个文件系统基本就绪，开始打印文件系统信息
-	wpmfs_print_memory_layout(sb, reserved_size);
-	wpmfs_print_wl_switch(sb);
 	return root_i;
 }
 
@@ -836,7 +833,7 @@ setup_sb:
 	}
 
 	clear_opt(sbi->s_mount_opt, MOUNTING);
-	fs_now_ready(sbi->s_bdev);
+	fs_now_ready(sb);
 	retval = 0;
 	return retval;
 out:

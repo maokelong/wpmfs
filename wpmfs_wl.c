@@ -64,9 +64,44 @@ struct int_ctrl _int_ctrl = {
     .workqueue = NULL,
 };
 
-void fs_now_ready(struct block_device *fs_bdev) {
+static void wpmfs_print_wl_switch(struct super_block *sb) {
+  if (!_int_ctrl.wl_switch) {
+    pmfs_info("Wear-leveling mechanism: Disabled.\n");
+    return;
+  }
+
+  if (_int_ctrl.wl_switch & 0x1)
+    pmfs_info("Wear-leveling mechanism: Rmap eabled.\n");
+  if (_int_ctrl.wl_switch & 0x2)
+    pmfs_info("Wear-leveling mechanism: Vmap enable.\n");
+  if (_int_ctrl.wl_switch & 0x4)
+    pmfs_info("Wear-leveling mechanism: Stranded enabled.\n");
+}
+
+static void wpmfs_print_memory_layout(struct super_block *sb) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+
+  pmfs_info(
+      "The memory layout of WellPM "
+      "(fmt: Start addr, size, VM area description):\n");
+
+  pmfs_info("0x%px, %lu, %s.\n", sbi->virt_addr, sbi->initsize, "fs direct");
+  pmfs_info("0x%px, %llu, %s.\n", sbi->vmapi.base_static,
+            sbi->vmapi.size_static, "vm reserved memory be mapped to");
+  pmfs_info("0x%px, %llu / %llu, %s.\n", sbi->vmapi.base_dynamic,
+            sbi->vmapi.size_dynamic, (u64)(1024 * 1024 * 1024),
+            "vm part of dynamic memory(inode table) be mapped to");
+}
+
+void fs_now_ready(struct super_block *sb) {
+  struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct block_device *fs_bdev = sbi->s_bdev;
+
   _int_ctrl.fs_ready = true;
   _int_ctrl.fs_bdev = fs_bdev;
+
+  wpmfs_print_memory_layout(sb);
+  wpmfs_print_wl_switch(sb);
 }
 
 void fs_now_removed(void) {
@@ -613,60 +648,6 @@ static void _exit_mem(struct super_block *sb) {
 void wpmfs_exit(struct super_block *sb) {
   _exit_int();
   _exit_mem(sb);
-}
-
-void wpmfs_print_wl_switch(struct super_block *sb) {
-  if (!_int_ctrl.wl_switch) {
-    pmfs_info("Wear-leveling mechanism: Disabled.\n");
-    return;
-  }
-
-  if (_int_ctrl.wl_switch & 0x1)
-    pmfs_info("Wear-leveling mechanism: Rmap eabled.\n");
-  if (_int_ctrl.wl_switch & 0x2)
-    pmfs_info("Wear-leveling mechanism: Vmap enable.\n");
-  if (_int_ctrl.wl_switch & 0x4)
-    pmfs_info("Wear-leveling mechanism: Stranded enabled.\n");
-}
-
-void wpmfs_print_memory_layout(struct super_block *sb,
-                               unsigned long reserved_size) {
-  struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  struct pmfs_super_block *super = pmfs_get_super(sb);
-  struct pmfs_inode *inode_table = pmfs_get_inode_table(sb);
-  pmfs_journal_t *journal_meta = pmfs_get_journal(sb);
-  void *journal_data = sbi->journal_base_addr;
-  unsigned long num_reserved_block =
-      (reserved_size + sb->s_blocksize - 1) >> sb->s_blocksize_bits;
-  uint64_t datablk_off = pmfs_get_block_off(
-      sb, sbi->block_start + num_reserved_block, PMFS_BLOCK_TYPE_4K);
-  void *pdatablk = pmfs_get_block(sb, datablk_off);
-
-  if (!sbi->vmapi.enabled) return;
-
-  wpmfs_assert(wpmfs_get_block(sb, journal_meta->base) == journal_data);
-  wpmfs_assert(cpu_to_le32(journal_meta->size) == sbi->jsize);
-
-  pmfs_info("The memory layout of wpmfs:\n");
-
-  pmfs_info("Memory reserved: %lu.\n", reserved_size);
-  pmfs_info("Memory reserved for prealloc pages: %llu.\n",
-            sbi->vmapi.size_static);
-
-  wpmfs_assert(is_vmalloc_addr(super));
-  pmfs_info("Superblock - start at 0x%px, len %lu.\n", super,
-            sizeof(struct pmfs_super_block));
-  wpmfs_assert(is_vmalloc_addr(inode_table));
-  pmfs_info("Inode table - start at 0x%px, len %lu.\n", inode_table,
-            sizeof(struct pmfs_inode));
-  wpmfs_assert(is_vmalloc_addr(journal_meta));
-  pmfs_info("Journal meta - start at 0x%px, len %lu.\n", journal_meta,
-            sizeof(pmfs_journal_t));
-  wpmfs_assert(is_vmalloc_addr(journal_data));
-  pmfs_info("Journal data - start at 0x%px, len %d.\n", journal_data,
-            cpu_to_le32(journal_meta->size));
-
-  pmfs_info("datablks - starts at 0x%px.\n", pdatablk);
 }
 
 u64 wpmfs_get_capacity(void) {

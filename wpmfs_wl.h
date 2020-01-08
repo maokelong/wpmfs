@@ -61,14 +61,11 @@ extern bool wpmfs_get_fs_wear(unsigned long blocknr, u64* wear_times);
  * install and unisntall of wpmfs
  *************************************************/
 
-extern void fs_now_ready(struct block_device* fs_bdev);
+extern void fs_now_ready(struct super_block* sb);
 extern void wpmfs_set_wl_switch(int wlsw);
 extern int wpmfs_init(struct super_block* sb, u64* reserved_memory_size);
 extern int wpmfs_recv(struct super_block* sb);
 extern void wpmfs_exit(struct super_block* sb);
 
-extern void wpmfs_print_wl_switch(struct super_block* sb);
 extern bool wpmfs_wl_stranded_enabled(void);
-extern void wpmfs_print_memory_layout(struct super_block* sb,
-                                      unsigned long reserved_size);
 #endif /* WPMFS_WL_H */
