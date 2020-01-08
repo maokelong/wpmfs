@@ -739,9 +739,10 @@ out_nomem:
 
 static bool recv_vmap_dynamic(struct super_block *sb) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
+  struct wpmfs_mptables *mptables = wpmfs_get_mptables(sb);
   mptable_slot_t *mptable = wpmfs_get_mptable_dynamic(sb);
   struct vm_struct *area;
-  u64 cur_page;
+  u64 cur_page, num_pages;
   bool succ = false;
 
   area = get_vm_area_caller(1024 * 1024 * 1024, VM_MAP,
@@ -756,7 +757,8 @@ static bool recv_vmap_dynamic(struct super_block *sb) {
     wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
   }
 
-  for (cur_page = 0; mptable[cur_page].blocknr; ++cur_page) {
+  num_pages = le64_to_cpu(mptables->mptable_dynamic.num_pages);
+  for (cur_page = 0; cur_page < num_pages; ++cur_page) {
     u64 blocknr = le64_to_cpu(mptable[cur_page].blocknr);
     wpmfs_map_dynamic_page(sb, blocknr);
   }

@@ -626,6 +626,7 @@ static bool setup_vmap_dynamic(struct super_block *sb,
 
   mptables->mptable_dynamic.head_blocknr =
       cpu_to_le64((*reserved_memory_size) >> PAGE_SHIFT);
+  mptables->mptable_dynamic.num_pages = cpu_to_le64(0);
   pmfs_flush_buffer(mptables, sizeof(struct wpmfs_mptables), true);
 
   area = get_vm_area_caller(vm_size, VM_MAP, __builtin_return_address(0));

@@ -1097,6 +1097,7 @@ static int pmfs_increase_inode_table_size(struct super_block *sb)
 		pmfs_dbg_verbose("no space left to inc inode table!\n");
 	/* commit the transaction */
 	pmfs_commit_transaction(sb, trans);
+	wpmfs_confirm_mptable_dynamic(sb);
 	return errval;
 }
 
