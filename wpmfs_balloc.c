@@ -8,6 +8,14 @@
  * simples allocator that allocates pages suffered minimal writes
  *************************************************/
 
+static int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	u64 blockoff = wpmfs_get_blockoff(sb, blocknr, 0).blockoff;
+	u64 pfn = pmfs_get_pfn(sb, blockoff);
+	int target_bin = (int)(wt_cnter_read_pfn(pfn) / get_int_thres_size());
+	return (target_bin < sbi->num_bins) ? target_bin : sbi->num_bins - 1;
+}
+
 void wpmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
   int cur_bin;

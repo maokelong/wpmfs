@@ -875,14 +875,6 @@ static inline void check_eof_blocks(struct super_block *sb,
 		pi->i_flags &= cpu_to_le32(~PMFS_EOFBLOCKS_FL);
 }
 
-static inline int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
-	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	u64 blockoff = wpmfs_get_blockoff(sb, blocknr, 0).blockoff;
-	u64 pfn = pmfs_get_pfn(sb, blockoff);
-	int target_bin = (int)(wt_cnter_read_pfn(pfn) / get_int_thres_size());
-	return (target_bin < sbi->num_bins) ? target_bin : sbi->num_bins - 1;
-}
-
 #include "wprotect.h"
 
 /*************************************************

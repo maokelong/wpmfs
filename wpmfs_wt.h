@@ -30,7 +30,7 @@ extern size_t _cell_endur_power;
 
 static inline void set_int_threshold(int power) {
   if(power < 12) BUG();
-  _cell_endur_power = power;
+  _int_thres_power = power;
   smp_rmb();
 }
 static inline uint64_t get_int_thres_size(void) {
@@ -41,7 +41,7 @@ static inline uint64_t get_int_thres_mask(void) {
 }
 
 static inline void set_cell_endurance(int power) {
-  _int_thres_power = power;
+  _cell_endur_power = power;
   smp_rmb();
 }
 static inline uint64_t get_cell_endurance(void) {
