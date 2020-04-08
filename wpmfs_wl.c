@@ -459,7 +459,7 @@ static void _level_type_vmap(struct super_block *sb, unsigned long pfn) {
                     le32_to_cpu(*(__le32 *)(src_direct + 144)));
   memcpy_page(dst_direct, src_direct, false);
   PM_EQU_NO_INT(mptable_slot->blocknr, cpu_to_le64(blocknr), signal_int);
-  wpmfs_assert(signal_int == false);
+  // wpmfs_assert(signal_int == false);
   pmfs_flush_buffer(&mptable_slot->blocknr, sizeof(mptable_slot->blocknr),
                     true);
   wpmfs_dbg_wl_vmap("src, head = %u, tail = %u.\n",
