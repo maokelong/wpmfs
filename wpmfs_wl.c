@@ -1,4 +1,5 @@
 #include "wpmfs_wl.h"
+
 #include <asm/smp.h>
 #include <asm/tlbflush.h>
 #include <linux/dax.h>
@@ -11,6 +12,7 @@
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
+
 #include "pmfs.h"
 #include "wpmfs_wt.h"
 
@@ -83,14 +85,13 @@ static void wpmfs_print_memory_layout(struct super_block *sb) {
 
   pmfs_info(
       "The memory layout of WellPM "
-      "(fmt: Start addr, size, VM area description):\n");
+      "(fmt: Start addr, size, VM area):\n");
 
-  pmfs_info("0x%px, %lu, %s.\n", sbi->virt_addr, sbi->initsize, "fs direct");
+  pmfs_info("0x%px, %lu, %s.\n", sbi->virt_addr, sbi->initsize, "VM_X");
   pmfs_info("0x%px, %llu, %s.\n", sbi->vmapi.base_static,
-            sbi->vmapi.size_static, "vm reserved memory be mapped to");
+            sbi->vmapi.size_static, "VM_S");
   pmfs_info("0x%px, %llu / %llu, %s.\n", sbi->vmapi.base_dynamic,
-            sbi->vmapi.size_dynamic, (u64)(1024 * 1024 * 1024),
-            "vm part of dynamic memory(inode table) be mapped to");
+            sbi->vmapi.size_dynamic, (u64)(1024 * 1024 * 1024), "VM_D");
 }
 
 void fs_now_ready(struct super_block *sb) {

@@ -477,7 +477,6 @@ struct pmfs_sb_info {
 static inline struct pmfs_sb_info *PMFS_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
-
 }
 static inline struct pmfs_inode_info *PMFS_I(struct inode *inode)
 {
@@ -544,7 +543,7 @@ static void *wpmfs_get_block(struct super_block *sb, u64 blockoff) {
   }
 }
 
-static wb wpmfs_get_blockoff(struct super_block *sb, u64 blocknr,
+static inline wb wpmfs_get_blockoff(struct super_block *sb, u64 blocknr,
                              u8 vlocation) {
   wb wblock = {0};
   switch (vlocation) {
