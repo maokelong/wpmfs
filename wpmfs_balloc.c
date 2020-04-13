@@ -18,19 +18,7 @@ static int wpmfs_get_bin(struct super_block* sb, unsigned long blocknr) {
 
 void wpmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size) {
   struct pmfs_sb_info *sbi = PMFS_SB(sb);
-  int cur_bin;
   unsigned long num_used_block;
-
-  /* allocate page bins, the last bin helds worn out pages */
-  sbi->num_bins =
-      get_cell_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
-  sbi->block_bins = (struct list_head *)kmalloc_array(
-      sbi->num_bins, sizeof(struct list_head), GFP_KERNEL);
-  wpmfs_assert(sbi->block_bins);
-  for (cur_bin = 0; cur_bin < sbi->num_bins; ++cur_bin) {
-    INIT_LIST_HEAD(&sbi->block_bins[cur_bin]);
-  }
-  pmfs_info("WellPM: number of bins equals %d.\n", sbi->num_bins);
 
   /* record all unused pages  */
   wpmfs_assert(sb->s_blocksize == PAGE_SIZE);
@@ -70,7 +58,7 @@ void __wpmfs_free_block(struct super_block *sb, unsigned long blocknr,
   sbi->num_free_blocks += num_blocks;
 
   page = pfn_to_page(pmfs_get_pfn(sb, blockoff));
-  wpmfs_mark_page(page, wpmfs_page_marks(page), 0);
+  wpmfs_mark_page(page, wpmfs_page_marks(page), WPMFS_PAGE_USING);
 }
 
 void wpmfs_free_block(struct super_block *sb, unsigned long blocknr,

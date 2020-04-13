@@ -694,6 +694,7 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	unsigned long blocksize;
 	u32 random = 0;
 	int retval = -EINVAL;
+  int cur_bin;
 
 	BUILD_BUG_ON(sizeof(struct pmfs_super_block) > PMFS_SB_SIZE);
 	BUILD_BUG_ON(sizeof(struct pmfs_inode) > PMFS_INODE_SIZE);
@@ -749,6 +750,16 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	if (pmfs_parse_options(data, sbi, 0))
 		goto out;
+	
+	/* allocate page bins, the last bin helds worn out pages */
+  sbi->num_bins =
+      get_cell_endurance() * PAGE_SIZE / get_int_thres_size() + 1;
+  sbi->block_bins = (struct list_head *)kmalloc_array(
+      sbi->num_bins, sizeof(struct list_head), GFP_KERNEL);
+	if (!sbi->block_bins)
+		return -ENOMEM;
+  for (cur_bin = 0; cur_bin < sbi->num_bins; ++cur_bin)
+    INIT_LIST_HEAD(&sbi->block_bins[cur_bin]);
 
 	set_opt(sbi->s_mount_opt, MOUNTING);
 

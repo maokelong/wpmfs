@@ -193,6 +193,7 @@ skip:
     Timingstats[recovery_t] += (end.tv_sec - start.tv_sec) * 1000000000 +
                                (end.tv_nsec - start.tv_nsec);
   }
+  wpmfs_error("Recovery takes %llu ns.\n", Timingstats[recovery_t]);
 
   return 0;
 }
