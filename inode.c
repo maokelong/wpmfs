@@ -820,6 +820,8 @@ int pmfs_init_inode_table(struct super_block *sb)
 		return errval;
 	}
 
+	wpmfs_confirm_mptable_dynamic(sb);
+
 	/* inode 0 is considered invalid and hence never used */
 	sbi->s_free_inodes_count =
 		(sbi->s_inodes_count - PMFS_FREE_INODE_HINT_START);
