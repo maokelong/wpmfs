@@ -110,10 +110,8 @@ static void wpmfs_try_free_blocks(struct super_block *sb, unsigned long low,
   unsigned long pfn0 = sbi->phys_addr >> PAGE_SHIFT;
 
   for (; low < high; ++low)
-    if (!(wpmfs_page_marks(pfn_to_page(low + pfn0)) & WPMFS_PAGE_USING)) {
+    if (!(wpmfs_page_marks(pfn_to_page(low + pfn0)) & WPMFS_PAGE_USING))
       __wpmfs_free_block(sb, low, PMFS_BLOCK_TYPE_4K, NULL);
-      sbi->num_free_blocks++;
-    }
 }
 
 static int __wpmfs_build_blocknode_map(struct super_block *sb,
