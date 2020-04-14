@@ -112,7 +112,7 @@ static void wpmfs_try_free_blocks(struct super_block *sb, unsigned long low,
   for (; low < high; ++low)
     if (!(wpmfs_page_marks(pfn_to_page(low + pfn0)) & WPMFS_PAGE_USING))
       __wpmfs_free_block(sb, low, PMFS_BLOCK_TYPE_4K, NULL);
-}
+  }
 
 static int __wpmfs_build_blocknode_map(struct super_block *sb,
                                        unsigned long *bitmap,
@@ -177,7 +177,7 @@ int wpmfs_setup_blocknode_map(struct super_block *sb) {
   sbi->s_free_inode_hint = PMFS_FREE_INODE_HINT_START;
 
   /* initialize the num_free_blocks to */
-  sbi->num_free_blocks = ((unsigned long)(initsize) >> PAGE_SHIFT);
+  sbi->num_free_blocks += ((unsigned long)(initsize) >> PAGE_SHIFT);
 
   // Set init_used_size to initsize.
   // wpmfs treat all blocks as allocated at first.

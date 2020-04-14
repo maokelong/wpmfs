@@ -713,6 +713,12 @@ static inline unsigned long wpmfs_page_marks(struct page* page) {
   return atomic_long_read(pmarks);
 }
 
+static inline void wpmfs_mark_page_unsafe(struct page *page,
+                                          unsigned long flags) {
+  unsigned long *pmarks = (unsigned long *)&page->private;
+  *pmarks = flags;
+}
+
 static inline bool wpmfs_mark_page(struct page* page, unsigned long ori_flags,
                                    unsigned long new_flags) {
   //  kernel bugs will report the empry page.

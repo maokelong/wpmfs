@@ -112,6 +112,7 @@ static int pmfs_get_block_info(struct super_block *sb,
 	pfn_t __pfn_t;
 	long size;
 	int ret;
+	long i;
 
 	ret = bdev_dax_supported(sb->s_bdev, PAGE_SIZE);
 	if (!ret) {
@@ -143,6 +144,12 @@ static int pmfs_get_block_info(struct super_block *sb,
 	sbi->initsize = size -_wt_cnter_file.size;
 	_wt_cnter_file.base = virt_addr + sbi->initsize;
 	_pfn0 = pfn_t_to_pfn(__pfn_t);
+
+	// 清除所有页的状态
+	for (i = 0; i < (sbi->initsize >> PAGE_SHIFT); ++i) {
+		struct page *page = pfn_to_page(_pfn0 + i);
+		wpmfs_mark_page_unsafe(page, 0);
+	}
 
 	return 0;
 }
